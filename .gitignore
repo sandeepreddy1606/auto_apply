@@ -6,3 +6,6 @@ __pycache__/
 *.pyc
 *.session
 *.session-journal
+.env
+.env.*
+!.env.example

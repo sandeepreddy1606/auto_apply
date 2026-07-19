@@ -53,11 +53,38 @@ FIELD_LABELS = {
     "deadline": ["last date", "deadline", "apply by", "apply before"],
 }
 
+# Lines that introduce an application link ("How to Apply:", "Apply Link -", …).
+_APPLY_INTRO_RE = re.compile(
+    r"\b(how\s+to\s+apply|apply\s+link|application\s+link|apply\s+here|"
+    r"apply\s+now|apply\s+at|to\s+apply|register\s+(?:here|at)|apply)\b", re.IGNORECASE)
+
 _SUBJECT_PATTERNS = [
     re.compile(r"subject\s*line\s*[:\-–]?\s*[\"“']?(.+?)[\"”']?\s*$", re.IGNORECASE),
     re.compile(r"(?:mention|use|put|write)\s+[\"“'](.+?)[\"”']\s+(?:as|in)\s+(?:the\s+)?subject", re.IGNORECASE),
     re.compile(r"subject\s*[:\-–]\s*[\"“']?(.+?)[\"”']?\s*$", re.IGNORECASE),
 ]
+
+
+# Forwarded referral posts frequently arrive with their newlines stripped, so
+# every "Label - value" runs together on one line. Re-insert a break before each
+# known label (and the apply-intro phrases) so line-based extraction works.
+_SPLIT_LABELS = [
+    "company", "role", "batch", "stipend", "ctc", "salary", "package",
+    "location", "experience", "qualifications", "qualification", "eligibility",
+    "skills", "deadline", "notice period", "job type", "employment type",
+    "work mode", "designation", "position", "department", "duration",
+    "how to apply", "apply link", "apply here", "apply now", "jd",
+    "must have", "good to have", "responsibilities", "requirements",
+    "description", "about the role", "what you'll work on", "what you will",
+    "who can apply", "perks", "benefits", "note", "roles and responsibilities",
+]
+_SPLIT_RE = re.compile(
+    r"\s*(?=(?:%s)\s*[-:–])" % "|".join(re.escape(w) for w in _SPLIT_LABELS),
+    re.IGNORECASE)
+
+
+def _normalize_lines(text: str) -> str:
+    return _SPLIT_RE.sub("\n", text)
 
 
 def _clean(text: str) -> str:
@@ -138,6 +165,67 @@ def _extract_subject_hint(lines: list[str]) -> str | None:
     return None
 
 
+def _extract_apply_url(lines: list[str]) -> str | None:
+    """The URL the poster points to for applying. Prefers a link that sits on
+    (or just after) a 'How to Apply' / 'Apply Link' line, so a JD/description
+    link earlier in the post isn't mistaken for the application link."""
+    for i, line in enumerate(lines):
+        if not _APPLY_INTRO_RE.search(line):
+            continue
+        same = URL_RE.findall(line)
+        if same:
+            return same[0].rstrip(".,;:!?")
+        for nxt in lines[i + 1:i + 4]:
+            found = URL_RE.findall(nxt)
+            if found:
+                return found[0].rstrip(".,;:!?")
+    return None
+
+
+def split_openings(text: str) -> list[str]:
+    """Split a message that lists several jobs into one chunk per opening.
+
+    Referral posts usually repeat a leading label per role ("Company - …" or
+    "Role - …"). When such a label appears 2+ times we cut the message at each
+    occurrence; otherwise it's a single opening. Conservative on purpose — a
+    wrong split is worse than leaving a post whole."""
+    norm = _normalize_lines(text)
+    lines = norm.split("\n")
+
+    def starts(pattern):
+        rx = re.compile(rf"^\s*(?:{pattern})\s*[-:–]", re.IGNORECASE)
+        return [i for i, ln in enumerate(lines) if rx.match(ln)]
+
+    company = starts("company|organi[sz]ation|employer")
+    role = starts("role|position|profile|designation|opening|post")
+
+    prefix = ""
+    if len(company) >= 2:
+        bounds = company
+    elif len(role) >= 2:
+        bounds = role
+        # If the company is stated once above the first role, share it with each.
+        header = "\n".join(lines[:role[0]])
+        if re.search(r"^\s*(?:company|organi[sz]ation|employer)\s*[-:–]", header,
+                     re.IGNORECASE | re.MULTILINE):
+            prefix = header.strip() + "\n"
+    else:
+        return [text]
+
+    segments = []
+    for a, b in zip(bounds, bounds[1:] + [len(lines)]):
+        seg = "\n".join(lines[a:b]).strip()
+        if prefix:
+            seg = prefix + seg
+        if len(seg) >= 15:
+            segments.append(seg)
+
+    # Guard against pathological splits; fall back to the whole message.
+    if not (2 <= len(segments) <= 25):
+        return [text]
+    return segments
+
+
 def text_hash(text: str) -> str:
     normalized = re.sub(r"\s+", " ", text.strip().lower())
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
@@ -145,7 +233,8 @@ def text_hash(text: str) -> str:
 
 def parse_message(text: str) -> dict:
     """Parse a job posting into structured fields. Pure rules, no AI."""
-    lines = [l for l in text.splitlines() if l.strip()]
+    normalized = _normalize_lines(text)
+    lines = [l for l in normalized.splitlines() if l.strip()]
 
     emails = []
     for e in EMAIL_RE.findall(text):
@@ -169,11 +258,20 @@ def parse_message(text: str) -> dict:
             fields["job_title"] = guess
 
     subject_hint = _extract_subject_hint(lines)
+    apply_url_hint = _extract_apply_url(lines)
 
+    # Priority: an auto-fillable Google Form, then an HR email, then a plain
+    # external application link (company career page / Workday / MS Forms — we
+    # can't auto-submit those but we surface the link so the user applies fast).
+    apply_url = None
     if form_urls:
         method = "gform"
     elif emails:
         method = "email"
+    elif other_urls:
+        method = "link"
+        apply_url = (apply_url_hint if apply_url_hint and not GFORM_RE.match(apply_url_hint)
+                     else other_urls[0])
     else:
         method = "unknown"
 
@@ -183,6 +281,7 @@ def parse_message(text: str) -> dict:
         "all_emails": emails,
         "form_url": form_urls[0] if form_urls else None,
         "all_form_urls": form_urls,
+        "apply_url": apply_url,
         "other_urls": other_urls[:10],
         "job_title": fields.get("job_title"),
         "company": fields.get("company"),

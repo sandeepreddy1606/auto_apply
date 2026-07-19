@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { Sliders, PlusSquare, SendIcon, ChevronRight } from '../components/Icons'
-import IngestModal from '../components/IngestModal'
+import { navigate } from '../router'
+import PageHeader from '../components/PageHeader'
+import { Sliders, PlusSquare, SendIcon, ChevronRight, BuildingIcon } from '../components/Icons'
 
 function relTime(iso) {
   if (!iso) return null
@@ -36,23 +37,25 @@ function MonthDots({ year, month, counts }) {
   )
 }
 
-export default function Home({ tg, onOpenApps, onOpenSettings }) {
+export default function Home({ tg }) {
   const [stats, setStats] = useState(null)
   const [activity, setActivity] = useState({})
   const [recent, setRecent] = useState([])
-  const [ingestOpen, setIngestOpen] = useState(false)
+  const [jobsSummary, setJobsSummary] = useState(null)
 
   useEffect(() => {
     let alive = true
     const load = async () => {
       try {
-        const [st, act, apps] = await Promise.all([
+        const [st, act, apps, cj] = await Promise.all([
           api.stats(), api.activity(), api.listApplications(),
+          api.companyJobsSummary().catch(() => null),
         ])
         if (!alive) return
         setStats(st)
         setActivity(act)
         setRecent(apps)
+        setJobsSummary(cj)
       } catch { /* backend warming up */ }
     }
     load()
@@ -79,8 +82,20 @@ export default function Home({ tg, onOpenApps, onOpenSettings }) {
 
   return (
     <>
+      <PageHeader large title="Overview" actions={
+        <>
+          <span className={`live-chip ${tg.state === 'connected' ? 'on' : ''}`}>
+            <span className="pulse" />
+            {tg.state === 'connected' ? 'Listening' : 'Offline'}
+          </span>
+          <button className="icon-btn" onClick={() => navigate('/paste')} title="Paste a job message">
+            <PlusSquare />
+          </button>
+        </>
+      } />
+
       {tg.state !== 'connected' && (
-        <div className="card connect-card" onClick={onOpenSettings}>
+        <div className="card connect-card" onClick={() => navigate('/settings/telegram')}>
           <span className="c-icon"><SendIcon style={{ width: 20, height: 20 }} /></span>
           <div>
             <div className="c-title">Connect Telegram</div>
@@ -91,7 +106,7 @@ export default function Home({ tg, onOpenApps, onOpenSettings }) {
       )}
 
       <div className="widget-row">
-        <div className="card widget" onClick={onOpenApps}>
+        <div className="card widget" onClick={() => navigate('/applications')}>
           <span className="corner"><Sliders /></span>
           <div className="ring">
             <svg className="track" width="62" height="62">
@@ -112,7 +127,7 @@ export default function Home({ tg, onOpenApps, onOpenSettings }) {
           </div>
         </div>
 
-        <div className="card widget" onClick={onOpenApps}>
+        <div className="card widget" onClick={() => navigate('/applications')}>
           <span className="corner"><Sliders /></span>
           <div className="big-num">
             {applied}<span className="unit">jobs</span>
@@ -126,7 +141,7 @@ export default function Home({ tg, onOpenApps, onOpenSettings }) {
         </div>
       </div>
 
-      <div className="card activity-card" onClick={onOpenApps}>
+      <div className="card activity-card" onClick={() => navigate('/applications')}>
         <div className="months">
           {months.map((m) => (
             <MonthDots key={`${m.year}-${m.month}`} year={m.year} month={m.month} counts={activity} />
@@ -148,7 +163,27 @@ export default function Home({ tg, onOpenApps, onOpenSettings }) {
         </div>
       </div>
 
-      <div className="card stat-row" onClick={onOpenApps}>
+      {jobsSummary && jobsSummary.companies > 0 && (
+        <div className="card stat-row" onClick={() => navigate('/companies')}>
+          <span className="c-icon" style={{ width: 44, height: 44, minWidth: 44, borderRadius: 14, background: 'var(--card-2)', border: '1px solid var(--stroke)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dim)' }}>
+            <BuildingIcon style={{ width: 20, height: 20 }} />
+          </span>
+          <div>
+            <div className="s-title">Career-page openings</div>
+            <div className="s-sub">
+              {jobsSummary.new_matched > 0
+                ? `${jobsSummary.new_matched} new match your profile`
+                : `watching ${jobsSummary.companies} compan${jobsSummary.companies > 1 ? 'ies' : 'y'}`}
+            </div>
+          </div>
+          <div className="s-num">
+            {jobsSummary.total_matched}<span className="unit">for you</span>
+          </div>
+          <span className="corner-inline"><ChevronRight style={{ width: 18, height: 18 }} /></span>
+        </div>
+      )}
+
+      <div className="card stat-row" onClick={() => navigate('/applications')}>
         <div>
           <div className="s-title">Applications sent</div>
           <div className="s-sub">Last 7 days</div>
@@ -159,16 +194,9 @@ export default function Home({ tg, onOpenApps, onOpenSettings }) {
         <span className="corner-inline"><Sliders style={{ width: 18, height: 18 }} /></span>
       </div>
 
-      <button className="square-btn" onClick={() => setIngestOpen(true)} title="Paste a job message">
+      <button className="square-btn" onClick={() => navigate('/paste')} title="Paste a job message">
         <PlusSquare />
       </button>
-
-      {ingestOpen && (
-        <IngestModal
-          onClose={() => setIngestOpen(false)}
-          onDone={() => { setIngestOpen(false); onOpenApps() }}
-        />
-      )}
     </>
   )
 }

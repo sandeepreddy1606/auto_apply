@@ -80,6 +80,8 @@ DEFAULTS = {
         "scan_interval_minutes": 180,
         "auto_scan": True,
     },
+    # Uploaded resumes: [{id, name, original, stored, keywords, is_default, size_kb, added_at}]
+    "resumes": [],
 }
 
 

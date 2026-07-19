@@ -92,6 +92,48 @@ export const ChevronRight = (p) => (
   </svg>
 )
 
+export const ChevronLeft = (p) => (
+  <svg {...base} {...p}>
+    <path d="M14.5 6 8.5 12l6 6" />
+  </svg>
+)
+
+export const DocIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M6 3.5h7l5 5V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 20V5A1.5 1.5 0 0 1 6.5 3.5z" />
+    <path d="M13 3.5V9h5" />
+    <line x1="8.5" y1="13" x2="15.5" y2="13" />
+    <line x1="8.5" y1="16.5" x2="13.5" y2="16.5" />
+  </svg>
+)
+
+export const LinkIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M10 13.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1.5 1.5" />
+    <path d="M14 10.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1.5-1.5" />
+  </svg>
+)
+
+export const LockIcon = (p) => (
+  <svg {...base} {...p}>
+    <rect x="4.5" y="10" width="15" height="10.5" rx="2.5" />
+    <path d="M7.5 10V7.5a4.5 4.5 0 0 1 9 0V10" />
+    <circle cx="12" cy="15" r="1.2" fill="currentColor" stroke="none" />
+  </svg>
+)
+
+export const BoltIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12z" />
+  </svg>
+)
+
+export const CheckIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M4.5 12.5 10 18 19.5 6.5" />
+  </svg>
+)
+
 export const BuildingIcon = (p) => (
   <svg {...base} {...p}>
     <rect x="4.5" y="3.5" width="10" height="17" rx="1.5" />

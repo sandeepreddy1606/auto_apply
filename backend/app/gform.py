@@ -16,7 +16,21 @@ import re
 import requests
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+      "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+
+# A minimal UA makes Google return 401 to some public forms as if we were a bot;
+# a full browser-like header set gets the same 200 a real Chrome would. Forms
+# that genuinely require sign-in still redirect to accounts.google.com (handled).
+BROWSER_HEADERS = {
+    "User-Agent": UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
 
 TYPE_NAMES = {
     0: "short_answer",
@@ -78,7 +92,7 @@ def _extract_load_data(html: str):
 def fetch_form(url: str, timeout: int = 30) -> dict:
     """Fetch and parse a Google Form's public schema."""
     session = requests.Session()
-    session.headers["User-Agent"] = UA
+    session.headers.update(BROWSER_HEADERS)
     try:
         resp = session.get(url, timeout=timeout, allow_redirects=True)
     except requests.RequestException as e:
@@ -86,7 +100,9 @@ def fetch_form(url: str, timeout: int = 30) -> dict:
 
     final_url = resp.url
     if "accounts.google.com" in final_url:
-        raise GFormError("This form requires Google sign-in and cannot be auto-submitted. Apply manually via the link.")
+        raise GFormError("This form requires Google sign-in, so it can't be auto-filled. Open it and apply manually.")
+    if resp.status_code in (401, 403):
+        raise GFormError("This form is restricted (Google sign-in / organization-only), so it can't be auto-filled. Open it and apply manually.")
     if resp.status_code != 200:
         raise GFormError(f"Form page returned HTTP {resp.status_code}.")
     html = resp.text
@@ -278,7 +294,7 @@ def submit_form(form: dict, answers: dict, timeout: int = 30) -> None:
         payload.append(("partialResponse", json.dumps([None, None, form["fbzx"]])))
 
     headers = {
-        "User-Agent": UA,
+        **BROWSER_HEADERS,
         "Content-Type": "application/x-www-form-urlencoded",
         "Referer": form["url"],
     }

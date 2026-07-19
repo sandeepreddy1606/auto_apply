@@ -4,12 +4,15 @@ import logging
 import os
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import auth
 from . import database as db
+from . import resumes as resume_store
 from . import scanner, service, settings_store
 from .paths import FRONTEND_DIST
 from .tg import manager as tg_manager
@@ -25,6 +28,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Endpoints reachable without a token. Everything else under /api requires one.
+_PUBLIC_API = {"/api/health", "/api/auth/status", "/api/auth/login", "/api/auth/setup"}
+
+
+@app.middleware("http")
+async def _auth_gate(request: Request, call_next):
+    path = request.url.path
+    # Non-API routes (the built frontend) and CORS preflight pass through.
+    if request.method == "OPTIONS" or not path.startswith("/api") or path in _PUBLIC_API:
+        return await call_next(request)
+    # No password configured yet -> let the setup flow through so the UI can
+    # bootstrap; all real endpoints stay protected once a password exists.
+    if not auth.is_password_set():
+        return JSONResponse({"detail": "Set up a password first."}, status_code=401)
+    header = request.headers.get("Authorization", "")
+    token = header[7:] if header.lower().startswith("bearer ") else None
+    if not auth.verify_token(token):
+        return JSONResponse({"detail": "Not authenticated."}, status_code=401)
+    return await call_next(request)
 
 
 @app.on_event("startup")
@@ -68,6 +91,7 @@ class PatchBody(BaseModel):
     method: str | None = None
     email_to: str | None = None
     form_url: str | None = None
+    apply_url: str | None = None
     job_title: str | None = None
     company: str | None = None
     location: str | None = None
@@ -102,7 +126,7 @@ class CompanyBody(BaseModel):
 
 
 class JobStateBody(BaseModel):
-    state: str  # new | seen | dismissed
+    state: str  # new | seen | dismissed | applied
 
 
 class CodeBody(BaseModel):
@@ -125,11 +149,68 @@ class ResumeCheckBody(BaseModel):
     path: str
 
 
+class PasswordAuthBody(BaseModel):
+    password: str
+
+
+class ChangePasswordBody(BaseModel):
+    current: str
+    new: str
+
+
+class ApplyBatchBody(BaseModel):
+    ids: list[int]
+
+
+class ResumeUpdateBody(BaseModel):
+    name: str | None = None
+    keywords: str | None = None
+    is_default: bool | None = None
+
+
 # ---------- applications ----------
 
 @app.get("/api/health")
 def health():
     return {"ok": True}
+
+
+# ---------- auth ----------
+
+@app.get("/api/auth/status")
+def auth_status(request: Request):
+    header = request.headers.get("Authorization", "")
+    token = header[7:] if header.lower().startswith("bearer ") else None
+    return {"password_set": auth.is_password_set(),
+            "authenticated": auth.verify_token(token)}
+
+
+@app.post("/api/auth/setup")
+def auth_setup(body: PasswordAuthBody):
+    try:
+        auth.set_password(body.password)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"token": auth.issue_token()}
+
+
+@app.post("/api/auth/login")
+def auth_login(body: PasswordAuthBody):
+    if not auth.is_password_set():
+        raise HTTPException(400, "No password is set yet.")
+    if not auth.verify_password(body.password):
+        raise HTTPException(401, "Incorrect password.")
+    return {"token": auth.issue_token()}
+
+
+@app.post("/api/auth/change")
+def auth_change(body: ChangePasswordBody):
+    try:
+        auth.change_password(body.current, body.new)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    # Old tokens are now invalid (secret rotated); hand back a fresh one.
+    return {"token": auth.issue_token()}
 
 
 @app.get("/api/stats")
@@ -172,10 +253,10 @@ def delete_application(app_id: int):
 
 @app.post("/api/messages/ingest")
 def ingest(body: IngestBody):
-    record = service.ingest_text(body.text, source="manual", channel=body.channel)
-    if record is None:
+    records = service.ingest_text(body.text, source="manual", channel=body.channel)
+    if not records:
         raise HTTPException(409, "This message was already ingested (duplicate).")
-    return record
+    return {"created": records}
 
 
 @app.get("/api/applications/{app_id}/email_preview")
@@ -205,15 +286,64 @@ async def apply(app_id: int, body: ApplyBody):
     if record["status"] == "applied":
         raise HTTPException(400, "Already applied.")
     method = record["method"]
-    if method == "email":
-        overrides = {k: v for k, v in body.model_dump().items()
-                     if k in ("to", "subject", "body") and v}
-        updated = await asyncio.to_thread(service.apply_email, record, overrides)
-    elif method == "gform":
-        updated = await asyncio.to_thread(service.apply_gform, record, body.answers)
-    else:
-        raise HTTPException(400, "No apply method for this message. Set method to email or gform first.")
-    return updated
+    overrides = {k: v for k, v in body.model_dump().items()
+                 if k in ("to", "subject", "body") and v}
+    # With explicit content (from the detail page) use it; otherwise fall back
+    # to the automated one-shot path.
+    try:
+        if method == "email" and overrides:
+            updated = await asyncio.to_thread(service.apply_email, record, overrides)
+        elif method == "gform" and body.answers is not None:
+            updated = await asyncio.to_thread(service.apply_gform, record, body.answers)
+        else:
+            updated = await asyncio.to_thread(service.auto_apply, record)
+        return updated
+    except service.NeedsInput as e:
+        # Google Form couldn't be auto-submitted — draft saved, return the
+        # questions still needing the user's input (not an error / not failed).
+        return {**db.get_application(app_id), "needs_input": True,
+                "unanswered_required": e.missing}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/applications/apply_batch")
+async def apply_batch(body: ApplyBatchBody):
+    """One-click bulk apply. Applies each id via the automated path and reports
+    per-item outcomes; skips already-applied and unknown-method posts."""
+    results = []
+    for app_id in body.ids[:200]:
+        record = db.get_application(app_id)
+        if not record:
+            results.append({"id": app_id, "ok": False, "error": "not found"})
+            continue
+        if record["status"] == "applied":
+            results.append({"id": app_id, "ok": True, "skipped": "already applied"})
+            continue
+        try:
+            updated = await asyncio.to_thread(service.auto_apply, record)
+            if not updated:  # deleted mid-batch
+                results.append({"id": app_id, "ok": False,
+                                "job_title": record.get("job_title"),
+                                "error": "removed during apply"})
+                continue
+            ok = updated["status"] == "applied"
+            results.append({"id": app_id, "ok": ok,
+                            "job_title": updated.get("job_title"),
+                            "error": None if ok else updated.get("error")})
+        except service.NeedsInput as e:
+            # Draft saved; the user must finish these — not a failure.
+            results.append({"id": app_id, "ok": False, "needs_input": True,
+                            "job_title": record.get("job_title"),
+                            "error": f"{len(e.missing)} question(s) need your input"})
+        except Exception as e:
+            # One bad item must never abort the batch or discard prior results.
+            results.append({"id": app_id, "ok": False,
+                            "job_title": record.get("job_title"), "error": str(e)})
+    applied = sum(1 for r in results if r.get("ok") and not r.get("skipped"))
+    needs_input = sum(1 for r in results if r.get("needs_input"))
+    return {"applied": applied, "needs_input": needs_input,
+            "total": len(results), "results": results}
 
 
 # ---------- settings ----------
@@ -226,6 +356,45 @@ def get_settings():
 @app.get("/api/settings/defaults")
 def get_settings_defaults():
     return settings_store.DEFAULTS
+
+
+# ---------- resumes ----------
+
+@app.get("/api/resumes")
+def get_resumes():
+    return {"resumes": resume_store.list_resumes()}
+
+
+@app.post("/api/resumes")
+async def upload_resume(file: UploadFile = File(...), name: str = Form(""),
+                        keywords: str = Form("")):
+    content = await file.read()
+    try:
+        return resume_store.add_resume(file.filename, content, name, keywords)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.patch("/api/resumes/{rid}")
+def patch_resume(rid: str, body: ResumeUpdateBody):
+    try:
+        return resume_store.update_resume(rid, body.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.delete("/api/resumes/{rid}")
+def delete_resume(rid: str):
+    resume_store.delete_resume(rid)
+    return {"ok": True}
+
+
+@app.get("/api/resumes/{rid}/file")
+def resume_file(rid: str):
+    path = resume_store.path_for(rid)
+    if not path:
+        raise HTTPException(404, "Resume file not found.")
+    return FileResponse(path, filename=resume_store.filename_for(rid))
 
 
 @app.post("/api/settings/check_resume")
@@ -290,7 +459,8 @@ def create_company(body: CompanyBody):
     try:
         return db.add_company(name, url)
     except Exception as e:
-        if "UNIQUE" in str(e):
+        msg = str(e).lower()
+        if "unique" in msg or "duplicate" in msg:
             raise HTTPException(409, "That career page URL is already added.")
         raise
 
@@ -351,8 +521,8 @@ def mark_company_jobs_seen():
 
 @app.patch("/api/company_jobs/{job_id}")
 def patch_company_job(job_id: int, body: JobStateBody):
-    if body.state not in ("new", "seen", "dismissed"):
-        raise HTTPException(400, "state must be new, seen or dismissed")
+    if body.state not in ("new", "seen", "dismissed", "applied"):
+        raise HTTPException(400, "state must be new, seen, dismissed or applied")
     job = db.get_company_job(job_id)
     if not job:
         raise HTTPException(404, "Job not found")

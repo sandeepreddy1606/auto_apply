@@ -1,24 +1,30 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from './api'
 import { ToastProvider } from './Toast'
+import { useRoute, navigate } from './router'
 import Home from './pages/Home'
 import Applications from './pages/Applications'
-import Companies from './pages/Companies'
-import Settings from './pages/Settings'
-import IngestModal from './components/IngestModal'
-import { GridIcon, ListIcon, ChatIcon, GearIcon, PlusSquare, BuildingIcon } from './components/Icons'
-
-const TITLES = { home: 'Overview', applications: 'Applications', companies: 'Companies', settings: 'Settings' }
+import ApplicationDetail from './pages/ApplicationDetail'
+import Paste from './pages/Paste'
+import CompaniesJobs from './pages/CompaniesJobs'
+import CompaniesManage from './pages/CompaniesManage'
+import SettingsHub from './pages/settings/SettingsHub'
+import ProfilePage from './pages/settings/Profile'
+import TelegramPage from './pages/settings/Telegram'
+import EmailPage from './pages/settings/Email'
+import TemplatePage from './pages/settings/Template'
+import AutomationPage from './pages/settings/Automation'
+import ResumesPage from './pages/settings/Resumes'
+import SecurityPage from './pages/settings/Security'
+import { GridIcon, ListIcon, GearIcon, BuildingIcon } from './components/Icons'
 
 export default function App() {
-  const [page, setPage] = useState('home')
+  const { raw, path, segments, query } = useRoute()
   const [tg, setTg] = useState({ state: 'disconnected' })
-  const [ingestOpen, setIngestOpen] = useState(false)
-  const [refreshKey, setRefreshKey] = useState(0)
   const [reviewCount, setReviewCount] = useState(0)
   const [newJobsCount, setNewJobsCount] = useState(0)
 
-  const refresh = useCallback(() => setRefreshKey((k) => k + 1), [])
+  useEffect(() => { window.scrollTo(0, 0) }, [raw])
 
   useEffect(() => {
     let alive = true
@@ -37,63 +43,55 @@ export default function App() {
     poll()
     const t = setInterval(poll, 10000)
     return () => { alive = false; clearInterval(t) }
-  }, [refreshKey])
+  }, [])
+
+  const [root, second] = segments
+  let page
+  if (!root) page = <Home tg={tg} />
+  else if (root === 'applications' && second) page = <ApplicationDetail id={Number(second)} />
+  else if (root === 'applications') page = <Applications />
+  else if (root === 'paste') page = <Paste />
+  else if (root === 'companies' && second === 'manage') page = <CompaniesManage />
+  else if (root === 'companies') page = <CompaniesJobs initialCompany={query.company} />
+  else if (root === 'settings' && second === 'profile') page = <ProfilePage />
+  else if (root === 'settings' && second === 'telegram') page = <TelegramPage tg={tg} setTg={setTg} />
+  else if (root === 'settings' && second === 'email') page = <EmailPage />
+  else if (root === 'settings' && second === 'template') page = <TemplatePage />
+  else if (root === 'settings' && second === 'automation') page = <AutomationPage />
+  else if (root === 'settings' && second === 'resumes') page = <ResumesPage />
+  else if (root === 'settings' && second === 'security') page = <SecurityPage />
+  else if (root === 'settings') page = <SettingsHub tg={tg} />
+  else page = <Home tg={tg} />
+
+  const tabOf = (r) => (r === 'paste' ? '' : r || '')
+  const active = tabOf(root)
 
   return (
     <ToastProvider>
       <div className="shell">
-        <div className="header">
-          <h1>{TITLES[page]}</h1>
-          <div className="actions">
-            <span className={`live-chip ${tg.state === 'connected' ? 'on' : ''}`}>
-              <span className="pulse" />
-              {tg.state === 'connected' ? 'Listening' : 'Offline'}
-            </span>
-            <button className="icon-btn" onClick={() => setIngestOpen(true)} title="Paste a message">
-              <PlusSquare />
-            </button>
-          </div>
-        </div>
-
-        {page === 'home' && (
-          <Home
-            key={refreshKey}
-            tg={tg}
-            onOpenApps={() => setPage('applications')}
-            onOpenSettings={() => setPage('settings')}
-          />
-        )}
-        {page === 'applications' && <Applications key={refreshKey} />}
-        {page === 'companies' && <Companies key={refreshKey} />}
-        {page === 'settings' && <Settings tg={tg} setTg={setTg} />}
+        <div className="page" key={path}>{page}</div>
       </div>
 
       <nav className="bottom-nav">
-        <button className={page === 'home' ? 'active' : ''} onClick={() => setPage('home')}>
+        <button className={active === '' ? 'active' : ''} title="Overview"
+          onClick={() => navigate('/')}>
           <GridIcon />
         </button>
-        <button className={page === 'applications' ? 'active' : ''} onClick={() => setPage('applications')}>
+        <button className={active === 'applications' ? 'active' : ''} title="Applications"
+          onClick={() => navigate('/applications')}>
           <ListIcon />
           {reviewCount > 0 && <span className="nav-dot" />}
         </button>
-        <button onClick={() => setIngestOpen(true)}>
-          <ChatIcon />
-        </button>
-        <button className={page === 'companies' ? 'active' : ''} onClick={() => setPage('companies')}>
+        <button className={active === 'companies' ? 'active' : ''} title="Companies"
+          onClick={() => navigate('/companies')}>
           <BuildingIcon />
           {newJobsCount > 0 && <span className="nav-dot" />}
         </button>
-        <button className={page === 'settings' ? 'active' : ''} onClick={() => setPage('settings')}>
+        <button className={active === 'settings' ? 'active' : ''} title="Settings"
+          onClick={() => navigate('/settings')}>
           <GearIcon />
         </button>
       </nav>
-
-      {ingestOpen && (
-        <IngestModal
-          onClose={() => setIngestOpen(false)}
-          onDone={() => { setIngestOpen(false); setPage('applications'); refresh() }}
-        />
-      )}
     </ToastProvider>
   )
 }
