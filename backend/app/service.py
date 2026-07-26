@@ -72,7 +72,8 @@ def _ingest_one(text: str, source: str, channel: str | None) -> dict | None:
     elif parsed["method"] == "link":
         status_reason = "Applies on an external page — open the link to apply."
 
-    record = db.insert_application({
+    try:
+        record = db.insert_application({
         "source": source,
         "channel": channel,
         "raw_text": text,
@@ -96,7 +97,13 @@ def _ingest_one(text: str, source: str, channel: str | None) -> dict | None:
         "email_subject": parsed["subject_hint"],
         "status": status,
         "status_reason": status_reason,
-    })
+        })
+    except Exception as e:
+        # Two identical messages ingested at the same moment can slip past the
+        # hash_exists check and collide on the UNIQUE text_hash — treat as a dup.
+        if "unique" in str(e).lower() or "duplicate" in str(e).lower():
+            return None
+        raise
     return record
 
 

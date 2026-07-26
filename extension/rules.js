@@ -1,0 +1,32 @@
+// Title -> profile-key rules (mirrors backend/app/gform.py FIELD_RULES).
+// A null key means "recognised but do NOT fill" (e.g. "company name" must not
+// be filled with your own name). First matching rule wins.
+window.AA_RULES = [
+  ['first\\s*name', 'first_name'],
+  ['last\\s*name|surname', 'last_name'],
+  ['(company|college|institute|university|father|mother|referr?er).{0,12}name', null],
+  ['full\\s*name|candidate\\s*name|your\\s*name|^name\\b|\\bname\\s*[:?]?$', 'full_name'],
+  ['e-?mail|mail\\s*id', 'email'],
+  ['phone|mobile|contact\\s*(no|num)|whats\\s*app', 'phone'],
+  ['resume|\\bcv\\b|curriculum', 'resume_url'],
+  ['linked\\s*in', 'linkedin'],
+  ['git\\s*hub', 'github'],
+  ['portfolio|personal\\s*website', 'portfolio'],
+  ['notice\\s*period|how\\s*soon.*join|joining', 'notice_period'],
+  ['(total|overall|relevant|years?\\s*of)\\s*.*experience|experience|\\byoe\\b|\\bexp\\b', 'experience_years'],
+  ['current\\s*(ctc|salary|compensation|package)', 'current_ctc'],
+  ['expected\\s*(ctc|salary|compensation|package)|salary\\s*expectation', 'expected_ctc'],
+  ['\\bctc\\b|salary|compensation|package|stipend', 'expected_ctc'],
+  ['current\\s*(company|organi[sz]ation|employer)|company|organi[sz]ation|employer', 'current_company'],
+  ['designation|current\\s*(role|position)|job\\s*title', 'current_role'],
+  ['preferred\\s*location', 'preferred_location'],
+  ['location|city|based\\s*(in|out)', 'current_location'],
+  ['relocat', 'willing_to_relocate'],
+  ['gender|\\bsex\\b', 'gender'],
+  ['college|university|institute|school', 'college'],
+  ['degree|qualification|education', 'degree'],
+  ['graduat|passing\\s*year|pass\\s*out|batch|year\\s*of\\s*(pass|complet)', 'graduation_year'],
+  ['skill|tech\\s*stack|technolog', 'skills'],
+  ['date\\s*of\\s*birth|\\bdob\\b', 'date_of_birth'],
+  ['why|cover\\s*letter|about\\s*(yourself|you)|tell\\s*us|describe|motivation|anything\\s*else', 'cover_note'],
+]

@@ -1,0 +1,11 @@
+**/.venv
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+data
+.env
+.env.*
+.git
+extension
+*.md

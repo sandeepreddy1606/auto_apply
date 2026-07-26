@@ -253,7 +253,10 @@ def delete_application(app_id: int):
 
 @app.post("/api/messages/ingest")
 def ingest(body: IngestBody):
-    records = service.ingest_text(body.text, source="manual", channel=body.channel)
+    try:
+        records = service.ingest_text(body.text, source="manual", channel=body.channel)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     if not records:
         raise HTTPException(409, "This message was already ingested (duplicate).")
     return {"created": records}

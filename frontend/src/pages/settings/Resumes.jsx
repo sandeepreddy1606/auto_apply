@@ -73,6 +73,11 @@ export default function ResumesPage() {
   const upload = async () => {
     const file = fileRef.current?.files?.[0]
     if (!file) { toast('Choose a file to upload.', 'error'); return }
+    if (file.size > 10 * 1024 * 1024) { toast('File too large (max 10 MB).', 'error'); return }
+    const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
+    if (!['.pdf', '.doc', '.docx', '.rtf', '.odt', '.txt'].includes(ext)) {
+      toast('Use a PDF, DOC, DOCX, RTF, ODT or TXT file.', 'error'); return
+    }
     setUploading(true)
     try {
       await api.uploadResume(file, name, keywords)

@@ -5,6 +5,7 @@ to a job, the resume whose keywords match the role is used; if none match, the
 one marked default is used. Files live in data/resumes/; metadata lives in
 settings.json under "resumes"."""
 import os
+import threading
 import uuid
 from datetime import datetime, timezone
 
@@ -13,6 +14,10 @@ from .paths import RESUMES_DIR
 
 ALLOWED_EXT = {".pdf", ".doc", ".docx", ".rtf", ".odt", ".txt"}
 MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Serializes the load-modify-save on the resume list so concurrent uploads /
+# edits / deletes can't clobber each other's changes.
+_lock = threading.Lock()
 
 
 def _now():
@@ -48,51 +53,54 @@ def add_resume(original_filename: str, content: bytes, name: str = "",
     with open(os.path.join(RESUMES_DIR, stored), "wb") as f:
         f.write(content)
 
-    items = list_resumes()
-    item = {
-        "id": rid,
-        "name": (name or "").strip() or (original_filename or "Resume"),
-        "original": original_filename or (rid + ext),
-        "stored": stored,
-        "keywords": (keywords or "").strip(),
-        "is_default": len(items) == 0,   # first resume added is the default
-        "size_kb": round(len(content) / 1024, 1),
-        "added_at": _now(),
-    }
-    items.append(item)
-    _save(items)
+    with _lock:
+        items = list_resumes()
+        item = {
+            "id": rid,
+            "name": (name or "").strip() or (original_filename or "Resume"),
+            "original": original_filename or (rid + ext),
+            "stored": stored,
+            "keywords": (keywords or "").strip(),
+            "is_default": len(items) == 0,   # first resume added is the default
+            "size_kb": round(len(content) / 1024, 1),
+            "added_at": _now(),
+        }
+        items.append(item)
+        _save(items)
     return item
 
 
 def update_resume(rid: str, fields: dict) -> dict:
-    items = list_resumes()
-    target = next((it for it in items if it["id"] == rid), None)
-    if not target:
-        raise ValueError("Resume not found.")
-    if fields.get("name") is not None:
-        target["name"] = str(fields["name"]).strip() or target["name"]
-    if fields.get("keywords") is not None:
-        target["keywords"] = str(fields["keywords"]).strip()
-    if fields.get("is_default"):
-        for it in items:
-            it["is_default"] = (it["id"] == rid)
-    _save(items)
-    return target
+    with _lock:
+        items = list_resumes()
+        target = next((it for it in items if it["id"] == rid), None)
+        if not target:
+            raise ValueError("Resume not found.")
+        if fields.get("name") is not None:
+            target["name"] = str(fields["name"]).strip() or target["name"]
+        if fields.get("keywords") is not None:
+            target["keywords"] = str(fields["keywords"]).strip()
+        if fields.get("is_default"):
+            for it in items:
+                it["is_default"] = (it["id"] == rid)
+        _save(items)
+        return target
 
 
 def delete_resume(rid: str) -> None:
-    items = list_resumes()
-    keep = [it for it in items if it["id"] != rid]
-    for it in items:
-        if it["id"] == rid:
-            try:
-                os.remove(_abs(it))
-            except OSError:
-                pass
-    # If the default was removed, promote the first remaining resume.
-    if keep and not any(it.get("is_default") for it in keep):
-        keep[0]["is_default"] = True
-    _save(keep)
+    with _lock:
+        items = list_resumes()
+        keep = [it for it in items if it["id"] != rid]
+        for it in items:
+            if it["id"] == rid:
+                try:
+                    os.remove(_abs(it))
+                except OSError:
+                    pass
+        # If the default was removed, promote the first remaining resume.
+        if keep and not any(it.get("is_default") for it in keep):
+            keep[0]["is_default"] = True
+        _save(keep)
 
 
 def path_for(rid: str) -> str | None:

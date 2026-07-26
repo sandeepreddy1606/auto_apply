@@ -6,7 +6,20 @@ import threading
 
 from .paths import SETTINGS_PATH
 
-_lock = threading.Lock()
+# Reentrant so save() can call load() while holding the lock (needed to make the
+# whole read-merge-write atomic and prevent concurrent saves losing each other).
+_lock = threading.RLock()
+
+
+def _write_atomic(path: str, text: str) -> None:
+    """Write via a temp file + os.replace so a crash mid-write can never leave a
+    truncated/corrupt file (which would wipe all settings)."""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
 
 DEFAULTS = {
     "profile": {
@@ -101,7 +114,15 @@ def load() -> dict:
             try:
                 with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
                     saved = json.load(f)
-            except (json.JSONDecodeError, OSError):
+            except json.JSONDecodeError:
+                # Corrupt file — keep a copy for recovery instead of silently
+                # overwriting it with defaults on the next save.
+                try:
+                    os.replace(SETTINGS_PATH, SETTINGS_PATH + ".corrupt")
+                except OSError:
+                    pass
+                saved = {}
+            except OSError:
                 saved = {}
         else:
             saved = {}
@@ -136,8 +157,9 @@ def _sanitize(settings: dict) -> dict:
 
 
 def save(settings: dict) -> dict:
-    merged = _sanitize(_deep_merge(load(), settings))
+    # Whole read-merge-write under one lock so two concurrent saves can't lose
+    # each other's changes (e.g. a resume upload racing a profile save).
     with _lock:
-        with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
-            json.dump(merged, f, indent=2, ensure_ascii=False)
+        merged = _sanitize(_deep_merge(load(), settings))
+        _write_atomic(SETTINGS_PATH, json.dumps(merged, indent=2, ensure_ascii=False))
     return merged

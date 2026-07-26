@@ -37,8 +37,14 @@ def _read() -> dict:
 
 
 def _write(data: dict) -> None:
-    with open(AUTH_PATH, "w", encoding="utf-8") as f:
+    # Atomic write so a crash mid-write can't corrupt auth.json (which would
+    # lock you out or wipe your password).
+    tmp = AUTH_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, AUTH_PATH)
 
 
 def _hash_password(password: str, salt: bytes) -> str:
