@@ -1,11 +1,8 @@
-backend/.venv/
-frontend/node_modules/
-frontend/dist/
+node_modules/
+.next/
+next-env.d.ts
 data/
-__pycache__/
-*.pyc
-*.session
-*.session-journal
 .env
 .env.*
 !.env.example
+*.tsbuildinfo

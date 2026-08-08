@@ -1,0 +1,35 @@
+{
+  "name": "auto-apply",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "dev": "next dev --port 8787",
+    "build": "next build",
+    "start": "next start --port ${PORT:-8787} --hostname ${AUTO_APPLY_HOST:-0.0.0.0}",
+    "typecheck": "tsc --noEmit",
+    "lint": "next lint",
+    "test": "node --import ./scripts/ts-resolve.mjs --test \"tests/*.test.ts\"",
+    "migrate:pg": "node --import ./scripts/ts-resolve.mjs scripts/migrate-sqlite-to-pg.ts"
+  },
+  "dependencies": {
+    "next": "^16.3.0",
+    "node-html-parser": "^7.0.1",
+    "nodemailer": "^9.0.5",
+    "pg": "^8.16.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "teleproto": "^1.228.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.0",
+    "@types/nodemailer": "^8.0.1",
+    "@types/pg": "^8.15.5",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.1",
+    "typescript": "^5.9.3"
+  }
+}

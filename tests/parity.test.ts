@@ -1,0 +1,61 @@
+/**
+ * Golden-output regression tests for the Python -> TypeScript migration.
+ *
+ * The fixtures in tests/fixtures/golden/ were produced by the ORIGINAL Python
+ * implementation (backend/app/*.py) and verified byte-identical against this
+ * TypeScript port before the Python was removed. They pin the exact behaviour
+ * of the regex-heavy pure functions — message parsing, job-title matching,
+ * email template rendering and Google Form field mapping — which is where
+ * Python and JavaScript semantics diverge most easily.
+ *
+ * A diff here means behaviour drifted from the system this replaced. Update a
+ * golden only when the change is intentional.
+ */
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
+import { describe, test } from 'node:test'
+
+const root = path.resolve(import.meta.dirname, '..')
+
+const golden = (name: string): string =>
+  fs.readFileSync(path.join(root, 'tests/fixtures/golden', name), 'utf-8')
+
+const dump = (script: string): string =>
+  execFileSync(process.execPath, [script], {
+    cwd: root,
+    encoding: 'utf-8',
+    maxBuffer: 32 * 1024 * 1024,
+  })
+
+describe('golden parity with the original Python implementation', () => {
+  test('parser: split_openings, text_hash and parse_message', () => {
+    const actual = dump('tests/parity/parse_ts.ts')
+    assert.equal(actual, golden('parser.json'), 'parser output drifted from the golden')
+
+    // Guard against the fixtures degenerating into a trivial pass.
+    const parsed = JSON.parse(actual) as { parsed: { method: string } }[]
+    assert.ok(parsed.length >= 10)
+    for (const method of ['gform', 'email', 'link', 'unknown']) {
+      assert.ok(
+        parsed.some((r) => r.parsed.method === method),
+        `fixtures no longer cover method="${method}"`,
+      )
+    }
+  })
+
+  test('scanner matching, mailer rendering and gform field mapping', () => {
+    const actual = dump('tests/parity/logic_ts.ts')
+    assert.equal(actual, golden('logic.json'), 'logic output drifted from the golden')
+
+    const parsed = JSON.parse(actual) as {
+      scanner: { titles: { matched: boolean }[] }[]
+      field_map: { key: string | null }[]
+    }
+    assert.ok(parsed.scanner.some((c) => c.titles.some((t) => t.matched)))
+    assert.ok(parsed.scanner.some((c) => c.titles.some((t) => !t.matched)))
+    assert.ok(parsed.field_map.some((f) => f.key === null))
+    assert.ok(parsed.field_map.some((f) => f.key !== null))
+  })
+})

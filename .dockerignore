@@ -1,11 +1,10 @@
-**/.venv
-**/node_modules
-**/dist
-**/__pycache__
-**/*.pyc
+node_modules
+.next
 data
-.env
-.env.*
 .git
+.env
+npm-debug.log*
+# Not needed at runtime.
 extension
-*.md
+tests
+scripts

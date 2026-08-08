@@ -71,7 +71,7 @@ DOMAIN=yourname.duckdns.org
 docker compose up -d --build
 ```
 
-That builds the frontend, starts the app, and starts Caddy which fetches a free
+That builds the Next.js app, starts it, and starts Caddy which fetches a free
 HTTPS certificate for your domain automatically. Give it ~1 minute, then open:
 
 **https://yourname.duckdns.org**
@@ -119,3 +119,22 @@ cd auto_apply && git pull && docker compose up -d --build
   your jobs are in Neon (which has its own backups).
 - **Security:** keep `.env` off git (it already is). Your dashboard password
   protects the site; HTTPS protects it in transit.
+
+## Notes on scaling
+
+Run a **single** app replica. The Telegram MTProto session must have exactly one
+holder — a second instance would sign the first one out — and the Telegram
+listener plus the career-page scan loop start once per server process
+(`instrumentation.ts`). Postgres via `DATABASE_URL` is fine to share; the app
+process is not.
+
+## Upgrading from the Python build
+
+`docker compose up -d --build` picks up the new image with no compose changes:
+the container still listens on 8787 and still persists to the `/data` volume,
+and the database schema is unchanged.
+
+After the first boot, go to **Settings → Telegram** and connect once. The old
+Telethon session file (`telegram.session`) is not readable by the new client,
+which stores its session as `telegram.session.txt` — so you will be asked for a
+login code one time. Re-tick your watched channels afterwards.
