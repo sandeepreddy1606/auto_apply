@@ -147,17 +147,24 @@ async function amazonQuery(params: URLSearchParams, cap: number): Promise<BigTec
 
 export async function searchAmazon(url: string, plan: SearchPlan): Promise<BigTechJob[]> {
   const u = new URL(url)
-  // A pasted search URL keeps its own filters.
-  if (u.searchParams.get('base_query') || u.searchParams.getAll('country[]').length || u.searchParams.get('country')) {
-    const p = new URLSearchParams(u.searchParams)
-    return amazonQuery(p, TOTAL_CAP)
+  // A pasted search with its own keywords is used as-is.
+  if ((u.searchParams.get('base_query') || '').trim()) {
+    return amazonQuery(new URLSearchParams(u.searchParams), TOTAL_CAP)
   }
+  // Otherwise search each of your roles. Location filters in a pasted URL
+  // (country, city…) win over your preferences; an empty keyword box never
+  // means "everything" (that pulled 400 unrelated jobs before).
+  const pastedCountry = u.searchParams.get('country') || u.searchParams.getAll('country[]').length
   const all: BigTechJob[] = []
   for (const role of plan.roles) {
-    const p = new URLSearchParams({ base_query: role })
-    for (const c of plan.countries3) p.append('country[]', c)
-    // A single country also works as a plain param, which the API honours most reliably.
-    if (plan.countries3.length === 1) p.set('country', plan.countries3[0])
+    const p = new URLSearchParams()
+    for (const [k, v] of u.searchParams) if (k !== 'base_query' && k !== 'offset' && k !== 'result_limit') p.append(k, v)
+    p.set('base_query', role)
+    if (!pastedCountry) {
+      for (const c of plan.countries3) p.append('country[]', c)
+      // A single country also works as a plain param, which the API honours most reliably.
+      if (plan.countries3.length === 1) p.set('country', plan.countries3[0])
+    }
     all.push(...(await amazonQuery(p, PER_ROLE_CAP)))
     if (all.length >= TOTAL_CAP) break
   }

@@ -101,6 +101,9 @@ export const career = {
   session: (sid: number) => request<ApplyDetail>(`/api/apply/${sid}`),
   generate: (sid: number, hint?: string) => request<{ version_id: number }>(`/api/apply/${sid}/resume/generate`, post({ hint })),
   lock: (sid: number, version_id: number) => request<ApplySession>(`/api/apply/${sid}/resume/lock`, post({ version_id })),
+  uploadedPdfs: (sid: number) =>
+    request<{ items: { id: string; name: string; original: string; size_kb: number; is_default: boolean; exists: boolean }[] }>(`/api/apply/${sid}/resume/use-pdf`),
+  usePdf: (sid: number, resume_id: string) => request<ApplySession>(`/api/apply/${sid}/resume/use-pdf`, post({ resume_id })),
   reuse: (sid: number, version_id: number) => request<{ version_id: number }>(`/api/apply/${sid}/resume/reuse`, post({ version_id })),
   fill: (sid: number) => request<{ task_id: number }>(`/api/apply/${sid}/fill`, post()),
   answers: (sid: number, values: Record<string, AnswerValue>, remember = true, save_to_answers?: Record<string, string>) =>

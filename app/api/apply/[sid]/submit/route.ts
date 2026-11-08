@@ -1,7 +1,7 @@
 import { canSubmit } from '@/lib/apply/start'
 import { getSession } from '@/lib/apply/sessions'
 import { lintBase, hasBlockingIssues } from '@/lib/resume/lint'
-import { getDefaultBase, getDismissed } from '@/lib/resume/store'
+import { getDefaultBase, getDismissed, getVersion } from '@/lib/resume/store'
 import { HttpError, handler, intParam, json } from '@/lib/server/http'
 import * as settingsStore from '@/lib/server/settings'
 import { enqueue } from '@/lib/tasks/queue'
@@ -15,7 +15,10 @@ export const POST = handler(async (_req: Request, ctx: { params: Promise<{ sid: 
   if (!s) throw new HttpError(404, 'Application not found')
   const gate = await canSubmit(s)
   if (!gate.ok) throw new HttpError(409, gate.reason ?? 'Not ready to submit')
-  const base = await getDefaultBase()
+  // Base-resume issues matter only when the PDF was built from it — not for
+  // a ready-made PDF attached from Settings → Resumes.
+  const locked = s.resume_version_id ? await getVersion(s.resume_version_id) : null
+  const base = locked?.generated_by === 'upload' ? null : await getDefaultBase()
   if (base && hasBlockingIssues(lintBase(base.latex, settingsStore.load().profile, await getDismissed(base.id)))) {
     throw new HttpError(409, 'Your base resume still has blocking issues (Settings → Resume → Issues).')
   }

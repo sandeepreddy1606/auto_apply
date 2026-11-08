@@ -94,6 +94,24 @@ function classify(message: string): LlmError['code'] {
   return 'failed'
 }
 
+/**
+ * Environment for the `claude` CLI with every pay-per-use route removed, so it
+ * can only run on your Claude subscription login (never billed per token):
+ * an API key, a custom auth token/gateway, or Bedrock/Vertex/Foundry cloud
+ * billing would each make the CLI charge that account instead.
+ */
+export const PAID_ENV_VARS = [
+  'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_CUSTOM_HEADERS',
+  'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY',
+  'AWS_BEARER_TOKEN_BEDROCK', 'ANTHROPIC_VERTEX_PROJECT_ID', 'ANTHROPIC_FOUNDRY_API_KEY',
+]
+
+export function subscriptionOnlyEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env = { ...base }
+  for (const k of PAID_ENV_VARS) delete env[k]
+  return env
+}
+
 export async function runClaudeCode(
   req: LlmRequest,
   ai: AiConfig,
@@ -112,7 +130,7 @@ export async function runClaudeCode(
       '--no-session-persistence',
       ...(ai.model ? ['--model', ai.model] : []),
     ]
-    const r = await runTool(bin, args, { cwd, input: req.prompt, timeoutMs: ai.timeout_s * 1000 })
+    const r = await runTool(bin, args, { cwd, input: req.prompt, timeoutMs: ai.timeout_s * 1000, env: subscriptionOnlyEnv() })
     if (r.timedOut) throw new LlmError('timeout', `Claude didn't answer within ${ai.timeout_s}s.`)
     const out = parseClaudeOutput(r.stdout || r.stderr)
     if (out.isError || r.code !== 0) {

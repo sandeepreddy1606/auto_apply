@@ -6,7 +6,8 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-const { detectBigTech, planSearch, parseGoogleResults } = await import('../lib/jobs/bigtech.ts')
+const await_import_bigtech = await import('../lib/jobs/bigtech.ts')
+const { detectBigTech, planSearch, parseGoogleResults } = await_import_bigtech
 const { extractJobLinks, extractJsonLdListings } = await import('../lib/server/scanner.ts')
 const { googleJobSections } = await import('../lib/jobs/jd.ts')
 const { rolesFromTitles } = await import('../lib/jobs/context.ts')
@@ -67,6 +68,43 @@ describe('big employers', () => {
     assert.match(s, /Code<\/li><\/ul>$/)
     assert.doesNotMatch(s, /menu|footer/)
     assert.equal(googleJobSections('<p>nothing</p>'), null)
+  })
+})
+
+describe('Amazon search URLs (network stubbed)', () => {
+  const { searchAmazon } = await_import_bigtech
+  async function capture(url: string, roles: string[]): Promise<URLSearchParams[]> {
+    const seen: URLSearchParams[] = []
+    const real = globalThis.fetch
+    globalThis.fetch = (async (u: string | URL) => {
+      seen.push(new URL(String(u)).searchParams)
+      return new Response(JSON.stringify({ hits: 1, jobs: [{ title: 'SDE', job_path: '/en/jobs/1/sde', normalized_location: 'Bengaluru, IND', posted_date: 'November 6, 2026', id_icims: '1' }] }), { headers: { 'content-type': 'application/json' } })
+    }) as typeof fetch
+    try {
+      await searchAmazon(url, planSearch(roles, ['Bengaluru']))
+    } finally {
+      globalThis.fetch = real
+    }
+    return seen
+  }
+
+  test('an empty search box is filled with your roles; pasted filters are kept', async () => {
+    const q = await capture('https://www.amazon.jobs/en/search?base_query=&loc_query=India&country=IND', ['Software Engineer', 'Backend Engineer'])
+    assert.deepEqual(q.map((p) => p.get('base_query')), ['Software Engineer', 'Backend Engineer'], 'never an empty "everything" search')
+    assert.ok(q.every((p) => p.get('country') === 'IND' && p.get('loc_query') === 'India'))
+  })
+
+  test('a pasted search with keywords is used as-is', async () => {
+    const q = await capture('https://www.amazon.jobs/en/search?base_query=sde+intern&country=USA', ['Software Engineer'])
+    assert.equal(q.length, 1)
+    assert.equal(q[0].get('base_query'), 'sde intern')
+    assert.equal(q[0].get('country'), 'USA')
+  })
+
+  test('a plain careers page searches your roles in your country', async () => {
+    const q = await capture('https://www.amazon.jobs/content/en/career-programs/military', ['Software Engineer'])
+    assert.equal(q[0].get('base_query'), 'Software Engineer')
+    assert.equal(q[0].get('country'), 'IND')
   })
 })
 

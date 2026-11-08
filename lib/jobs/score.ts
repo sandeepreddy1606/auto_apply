@@ -3,8 +3,10 @@
  *
  *   score = 35·title + 30·skills + 15·experience + 10·location + 5·freshness + 5·company
  *
- * Hard filters (excluded keyword/company, seniority outside your levels) force 0
- * and say why. Pure: callers pass everything in.
+ * Hard filters force 0 and say why: an excluded keyword/company, seniority
+ * outside your levels, a title that matches none of your target roles (when
+ * you've set roles), or a job asking for far more experience than you have.
+ * Pure: callers pass everything in.
  */
 import type { JobPrefs, ScoreBreakdown, Seniority } from '@/lib/types'
 
@@ -59,6 +61,12 @@ export function roleVariants(role: string): string[] {
 
 const GENERIC = new Set(['engineer', 'developer', 'intern', 'junior', 'senior', 'i', 'ii', 'iii', 'associate', 'level', 'and'])
 
+/** Words that say what kind of job a title is (vs. what it's about). */
+const JOB_NOUNS = new Set([
+  'engineer', 'engineers', 'engineering', 'developer', 'developers', 'programmer', 'sde', 'swe', 'sdet',
+  'scientist', 'architect', 'analyst', 'designer', 'mts', 'devops', 'sre', 'intern', 'internship',
+])
+
 /** Best similarity of the job title to any target role: [score 0–1, matched role]. */
 export function titleScore(title: string, roles: string[]): [number, string | null] {
   const t = norm(title)
@@ -75,6 +83,11 @@ export function titleScore(title: string, roles: string[]): [number, string | nu
         if (vt.length) {
           const hit = vt.filter((w) => tt.has(w)).length
           s = (hit / vt.length) * 0.8
+          // A shared topic word isn't enough when the role names a kind of job:
+          // "Software Engineer" must not match "Associate, Quality Services,
+          // Auto Software". Require a job noun in the title too.
+          const roleHasNoun = v.split(' ').some((w) => JOB_NOUNS.has(w))
+          if (s > 0 && roleHasNoun && ![...tt].some((w) => JOB_NOUNS.has(w))) s *= 0.5
         }
         // "Software Engineer" vs "Engineer, Software" etc.
         if (s === 0 && v.split(' ').every((w) => tt.has(w))) s = 0.9
@@ -156,6 +169,18 @@ export function scoreJob(job: ScoreInput, ctx: ScoreContext): { score: number; b
   }
 
   const [tScore, tRole] = roles.length ? titleScore(job.title, roles) : [0.5, null]
+  const range = jd.experience ?? parseExperience(job.title)
+
+  // Your explicit target roles are a gate, not just a weight: a "Graphic
+  // Designer" must not become relevant on skills + location alone.
+  const explicitRoles = prefs.target_roles.length > 0
+  if (!excluded && explicitRoles && prefs.require_title_match !== false && tScore < TITLE_GATE) {
+    excluded = `title doesn't match your roles (${prefs.target_roles.slice(0, 3).join(', ')})`
+  }
+  const gap = prefs.max_experience_gap ?? 2
+  if (!excluded && range && ctx.years !== null && gap < 10 && range.min - ctx.years > gap) {
+    excluded = `asks for ${range.min}+ years (you have about ${formatYears(ctx.years)})`
+  }
 
   const wanted = [...jd.required, ...jd.preferred]
   const have = wanted.filter((s) => ctx.skills.has(s))
@@ -171,7 +196,6 @@ export function scoreJob(job: ScoreInput, ctx: ScoreContext): { score: number; b
   const include = prefs.include_keywords.filter((k) => k && (wordRe(k).test(job.title) || wordRe(k).test(text)))
   sScore = Math.min(1, sScore + include.length * 0.05)
 
-  const range = jd.experience ?? parseExperience(job.title)
   const eScore = experienceScore(range, ctx.years, seniority)
   const lScore = locationScore(job.location, prefs)
   const fScore = freshnessScore(job.posted_at || job.first_seen_at, prefs.freshness_days, ctx.now)
@@ -200,6 +224,11 @@ export function scoreJob(job: ScoreInput, ctx: ScoreContext): { score: number; b
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100
+
+/** Minimum title similarity for a job to count when you've set target roles. */
+export const TITLE_GATE = 0.5
+
+const formatYears = (y: number): string => (y < 1 ? `${Math.round(y * 12)} months` : `${Math.round(y * 10) / 10} years`)
 
 /** One-line explanation for cards: "78 · title ✓ · 9/12 skills · exp fits · Bengaluru ✓". */
 export function explain(score: number, b: ScoreBreakdown, location: string | null): string {

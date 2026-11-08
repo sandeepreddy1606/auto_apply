@@ -251,6 +251,33 @@ describe('server + worker end to end', { skip: BUILT ? false : 'run `npm run bui
     assert.equal(gen.status, 409, 'generate refused while the base has blocking issues')
   })
 
+  test('apply without MiKTeX: attach an uploaded PDF instead', async () => {
+    // Upload a tiny valid PDF the way Settings → Resumes does.
+    const pdf = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n', 'latin1')
+    const fd = new FormData()
+    fd.append('file', new Blob([pdf], { type: 'application/pdf' }), 'My_Resume.pdf')
+    fd.append('name', 'My resume')
+    const up = await fetch(`${API}/api/resumes`, { method: 'POST', headers: { cookie }, body: fd })
+    assert.equal(up.status, 200, await up.clone().text())
+    const rid = ((await up.json()) as { id: string }).id
+
+    const list = await call<{ items: { id: string; exists: boolean }[] }>('GET', `/api/apply/${sid}/resume/use-pdf`)
+    assert.ok(list.data.items.some((x) => x.id === rid && x.exists))
+    const bad = await call<{ detail: string }>('POST', `/api/apply/${sid}/resume/use-pdf`, { resume_id: 'nope' })
+    assert.equal(bad.status, 400)
+    const r = await call<{ status: string; resume_version_id: number }>('POST', `/api/apply/${sid}/resume/use-pdf`, { resume_id: rid })
+    assert.equal(r.status, 200)
+    assert.equal(r.data.status, 'resume_ready')
+    const d = (await call<{ versions: { id: number; generated_by: string; status: string }[]; gates: Record<string, { ok: boolean; reason: string }> }>('GET', `/api/apply/${sid}`)).data
+    const v = d.versions.find((x) => x.id === r.data.resume_version_id)!
+    assert.equal(v.generated_by, 'upload')
+    assert.equal(v.status, 'locked')
+    assert.equal(d.gates.lock.ok, true, 'no compiler needed for a ready-made PDF')
+    const served = await fetch(`${API}/api/resume/versions/${v.id}/pdf`, { headers: { cookie } })
+    assert.equal(served.status, 200)
+    assert.equal((await served.arrayBuffer()).byteLength, pdf.length)
+  })
+
   test('resolving the remaining blocking issues unlocks Generate; manual AI round trip', async () => {
     for (let i = 0; i < 6; i++) {
       const iss = (await call<{ base_id: number; issues: { id: string; kind: string; severity: string; actions: { id: string; needs_value?: boolean }[] }[] }>('GET', '/api/resume/issues')).data

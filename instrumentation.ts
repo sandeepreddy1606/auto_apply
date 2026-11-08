@@ -17,6 +17,10 @@ export async function register(): Promise<void> {
   const g = globalThis as GlobalFlag
   if (g[STARTED]) return
   g[STARTED] = true
+  // Once per install: copy resume details (name, email, phone, links,
+  // education, current role) into empty profile fields so autofill works.
+  void prefillProfileOnce().catch((e) => console.warn('[autoapply.startup] profile prefill skipped:', e))
+
   // Page audits and other throwaway servers: no Telegram, scans or worker.
   if (process.env.AUTO_APPLY_NO_BACKGROUND === '1') return
 
@@ -44,6 +48,18 @@ export async function register(): Promise<void> {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+async function prefillProfileOnce(): Promise<void> {
+  const { kvGet, kvSet } = await import('@/lib/tasks/queue')
+  if ((await kvGet('profile_prefilled_v1'))?.value) return
+  const { getDefaultBase } = await import('@/lib/resume/store')
+  const base = await getDefaultBase()
+  if (!base) return // try again next start, once a resume exists
+  const { fillProfileGaps } = await import('@/lib/resume/profile-fill')
+  const filled = fillProfileGaps(base.latex)
+  await kvSet('profile_prefilled_v1', { at: new Date().toISOString(), filled })
+  if (filled.length) console.log(`[autoapply.startup] Filled ${filled.length} profile fields from your resume: ${filled.join(', ')}`)
+}
 
 /** Periodically rescan every company's career page in the background. */
 async function companyScanLoop(

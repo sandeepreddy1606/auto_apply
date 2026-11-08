@@ -165,6 +165,22 @@ Playwright Chromium), then work through Job preferences, Resume (your base `.tex
 its **Issues** with inline fixes, fact bank, skills inventory, output), Application
 answers, AI and Apply automation.
 
+- **Costs nothing extra.** Everything is free and local: Playwright, MiKTeX,
+  Poppler, SQLite, and your existing Claude subscription through the CLI. The
+  app strips API keys and cloud-billing variables before it runs `claude`, so
+  AI calls can't fall through to pay-per-use billing. A daily cap protects your
+  plan's limits, and manual copy/paste mode needs no AI at all.
+- **Matching is strict about what counts as relevant.**
+  - Once you set target roles, a job's title must match one of them (synonyms
+    count, e.g. SDE = Software Engineer).
+  - Jobs asking for much more experience than you have are filtered out
+    (more than 2 years beyond yours by default).
+  - Both rules can be changed in Job preferences.
+- **No MiKTeX yet?** On the Apply page, choose "Use a PDF I already have
+  instead" to attach a PDF from Settings → Resumes as-is.
+- **Profile autofill:** empty profile fields are filled once from your resume
+  (name, email, phone, links, education, current role). Settings → Profile also
+  has a button to do it again; it never overwrites what you've typed.
 - **AI uses your Claude Pro plan** through the local Claude Code CLI
   (`claude -p --json-schema … --tools ""`), signed in once with `claude` → `/login`.
   Manual copy/paste mode works without it.

@@ -113,6 +113,17 @@ export default function PreferencesPage() {
           <p className="small" style={{ marginTop: 8 }}>
             {count ? <><b>{count.relevant}</b> of {count.total} active jobs would be relevant.</> : <span className="muted">Counting…</span>}
           </p>
+          <label className="toggle" style={{ marginTop: 12 }}>
+            <input type="checkbox" checked={p.require_title_match !== false} onChange={(e) => s.set('require_title_match')(e.target.checked)} />
+            <span>Only count jobs whose title matches one of my target roles</span>
+          </label>
+          <label className="field" style={{ marginTop: 12 }}>
+            <span className="lbl">Hide jobs that ask for more experience than I have by</span>
+            <select value={p.max_experience_gap ?? 2} onChange={(e) => s.set('max_experience_gap')(Number(e.target.value))}>
+              {[1, 2, 3, 5].map((y) => <option key={y} value={y}>more than {y} year{y > 1 ? 's' : ''}</option>)}
+              <option value={10}>Don’t hide by experience</option>
+            </select>
+          </label>
           <label className="field" style={{ marginTop: 12 }}>
             <span className="lbl">Freshness window</span>
             <select value={p.freshness_days} onChange={(e) => s.set('freshness_days')(Number(e.target.value))}>

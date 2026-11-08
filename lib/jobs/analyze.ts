@@ -80,8 +80,10 @@ export function detectSeniority(title: string): Seniority | null {
   if (/\b(intern|internship|trainee|apprentice|co-?op)\b/.test(t)) return 'intern'
   if (/\b(new grad|graduate|fresher|entry[- ]level|campus|university grad)\b/.test(t)) return 'new_grad'
   if (/\b(senior|sr\.?|staff|principal|lead|director|head|vp|architect|manager|distinguished)\b/.test(t)) return 'senior'
-  if (/\b(junior|jr\.?|associate)\b/.test(t) || /\b(i|1|l1|sde[- ]?1|sde[- ]?i|engineer i)\b/.test(t)) return 'junior'
+  // An explicit level ("II", "III", "L2") wins over words like "Associate",
+  // which is often a team name ("SDE III, Associate Experience").
   if (/\b(ii|2|l2|sde[- ]?2|sde[- ]?ii|iii|3|mid)\b/.test(t)) return 'mid'
+  if (/\b(junior|jr\.?|associate)\b/.test(t) || /\b(i|1|l1|sde[- ]?1|sde[- ]?i|engineer i)\b/.test(t)) return 'junior'
   return null
 }
 

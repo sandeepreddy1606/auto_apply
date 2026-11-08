@@ -181,6 +181,8 @@ export const api = {
       '/api/settings/check_resume',
       post({ path }),
     ),
+  fillProfileFromResume: () =>
+    request<{ filled: string[] }>('/api/resume/fill-profile', post()),
   testEmail: (to: string) =>
     request<{ ok: boolean }>('/api/settings/test_email', post({ to })),
 

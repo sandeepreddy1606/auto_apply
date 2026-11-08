@@ -271,3 +271,8 @@ input[type="checkbox"], input[type="radio"] {
 /* Suggestion chips are real buttons (keyboard + screen readers), styled like the tags. */
 .kw button.chip-sugg { font: inherit; font-size: 12px; cursor: pointer; background: none; color: inherit; }
 .kw button.chip-sugg:hover, .kw button.chip-sugg:focus-visible { color: var(--text); border-color: var(--stroke-2); outline: none; }
+
+/* Apply → Resume: "Use a PDF I already have instead". */
+.use-pdf { display: grid; gap: 8px; margin-top: 10px; padding: 12px; border: 1px dashed var(--stroke-2); border-radius: 14px; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--blue); font: inherit; font-size: 12.5px; cursor: pointer; }
+.link-btn:hover { text-decoration: underline; }

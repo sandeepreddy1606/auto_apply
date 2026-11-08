@@ -40,6 +40,8 @@ const PREFS: JobPrefs = {
   excluded_companies: [],
   threshold: 55,
   freshness_days: 45,
+  require_title_match: true,
+  max_experience_gap: 2,
 }
 
 // ---------------------------------------------------------------- skills / JD
@@ -126,6 +128,36 @@ describe('scoring', () => {
   test('unrelated title scores below threshold', () => {
     const { score } = scoreJob(job('Account Executive', { description_text: 'Sell software to enterprises.' }), ctx)
     assert.ok(score < PREFS.threshold, `score ${score}`)
+  })
+  test('a title matching none of your roles is filtered, even with matching skills', () => {
+    // Real cases from a live scan: these scored 58–72 on skills + location alone.
+    for (const t of ['Graphic Designer, IN-Events', 'Transportation Representative', 'Full Life Cycle Recruiter, AWS']) {
+      const { score, breakdown } = scoreJob(job(t), ctx)
+      assert.equal(score, 0, t)
+      assert.match(breakdown.excluded ?? '', /title doesn.t match your roles/, t)
+    }
+    // Synonyms still pass the gate.
+    assert.equal(scoreJob(job('Software Development Engineer, Payments'), ctx).breakdown.excluded, null)
+    // A shared topic word alone ("software") is not a role match.
+    assert.match(scoreJob(job('Associate, Quality Services, Auto Software (Smart Vehicles)'), ctx).breakdown.excluded ?? '', /title doesn.t match/)
+    // An explicit level beats "Associate" in a team name.
+    assert.match(scoreJob(job('Software Development Engineer III, Associate Experience'), ctx).breakdown.excluded ?? '', /seniority: mid/)
+    assert.equal(scoreJob(job('Associate Software Engineer'), ctx).breakdown.excluded, null)
+    // The gate can be switched off, and doesn't apply to roles guessed from your resume.
+    assert.notEqual(scoreJob(job('Graphic Designer'), { ...ctx, prefs: { ...PREFS, require_title_match: false } }).score, 0)
+    assert.notEqual(scoreJob(job('Graphic Designer'), { ...ctx, prefs: { ...PREFS, target_roles: [] }, fallbackRoles: ['Software Engineer'] }).breakdown.excluded?.includes('title'), true)
+  })
+  test('a job asking for far more experience than you have is filtered', () => {
+    const six = job('Software Engineer', { description_text: 'Requirements\n6+ years of experience with Java and SQL.' })
+    const r = scoreJob(six, ctx)
+    assert.equal(r.score, 0)
+    assert.match(r.breakdown.excluded ?? '', /asks for 6\+ years \(you have about 8 months\)/)
+    // Within the allowed gap (0.7 y vs 2 y asked, gap 2) it stays.
+    const two = job('Software Engineer', { description_text: 'Requirements\n2+ years of experience with Java and SQL.' })
+    assert.equal(scoreJob(two, ctx).breakdown.excluded, null)
+    // Gap 10 = off; unknown experience never filters.
+    assert.equal(scoreJob(six, { ...ctx, prefs: { ...PREFS, max_experience_gap: 10 } }).breakdown.excluded, null)
+    assert.equal(scoreJob(six, { ...ctx, years: null }).breakdown.excluded, null)
   })
   test('title synonyms', () => {
     assert.equal(titleScore('SDE', ['Software Engineer'])[0], 1)

@@ -465,7 +465,8 @@ async function scanCompanyInner(company: Company, settings: Settings): Promise<S
     if (clean.length >= MAX_JOBS_PER_COMPANY) break
   }
 
-  const sync = await db.syncCompanyJobs(company.id, clean)
+  // Search-based sites return a window of results, not the full list.
+  const sync = await db.syncCompanyJobs(company.id, clean, { windowed: Boolean(detectBigTech(company.career_url)) })
   let status = 'ok'
   let error: string | null = null
   if (!clean.length) {

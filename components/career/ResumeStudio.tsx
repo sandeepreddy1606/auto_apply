@@ -15,7 +15,72 @@ const LatexEditor = dynamic(() => import('./LatexEditor'), {
   loading: () => <div className="cm-host skeleton" />,
 })
 
-const VLABEL: Record<string, string> = { base: 'Base copy', llm: 'AI tailored', user: 'Your edit' }
+/**
+ * Attach a ready-made PDF from Settings → Resumes instead of a compiled LaTeX
+ * version. Works without MiKTeX, so you can apply right away.
+ */
+function UsePdfInstead({ sid, reload, emphasise }: { sid: number; reload: () => void; emphasise: boolean }) {
+  const toast = useToast()
+  const [open, setOpen] = useState(false)
+  const [items, setItems] = useState<{ id: string; name: string; is_default: boolean; exists: boolean }[] | null>(null)
+  const [pick, setPick] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!open || items) return
+    career
+      .uploadedPdfs(sid)
+      .then((r) => {
+        const ok = r.items.filter((x) => x.exists)
+        setItems(ok)
+        setPick((ok.find((x) => x.is_default) ?? ok[0])?.id ?? '')
+      })
+      .catch(() => setItems([]))
+  }, [open, items, sid])
+  const use = async () => {
+    setBusy(true)
+    try {
+      await career.usePdf(sid, pick)
+      toast('PDF attached to this application.', 'success')
+      reload()
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (!open) {
+    return (
+      <button type="button" className={emphasise ? 'btn sm' : 'link-btn'} style={{ marginTop: 10 }} onClick={() => setOpen(true)}>
+        Use a PDF I already have instead
+      </button>
+    )
+  }
+  return (
+    <div className="use-pdf">
+      {items === null ? (
+        <p className="muted small">Loading your PDFs…</p>
+      ) : items.length === 0 ? (
+        <p className="muted small">
+          No PDF resumes uploaded yet. Add one in <a href="/settings/resumes">Settings → Resumes</a>, then come back.
+        </p>
+      ) : (
+        <>
+          <select value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Uploaded PDF">
+            {items.map((x) => (
+              <option key={x.id} value={x.id}>{x.name}{x.is_default ? ' (default)' : ''}</option>
+            ))}
+          </select>
+          <button type="button" className="btn sm primary" disabled={!pick || busy} onClick={use}>
+            {busy ? 'Attaching…' : 'Use this PDF →'}
+          </button>
+          <p className="muted small">Sent as-is: no tailoring or ATS check for this application.</p>
+        </>
+      )}
+    </div>
+  )
+}
+
+const VLABEL: Record<string, string> ={ base: 'Base copy', llm: 'AI tailored', user: 'Your edit', upload: 'Uploaded PDF' }
 
 export default function ResumeStudio({ d, reload }: { d: ApplyDetail; reload: () => void }) {
   const toast = useToast()
@@ -315,6 +380,7 @@ export default function ResumeStudio({ d, reload }: { d: ApplyDetail; reload: ()
                 Use this resume →
               </GatedButton>
             )}
+            <UsePdfInstead sid={sid} reload={reload} emphasise={!lockGate.ok} />
           </div>
         </div>
       </div>

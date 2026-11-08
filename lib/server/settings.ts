@@ -95,6 +95,8 @@ export const DEFAULTS: Settings = {
     excluded_companies: [],
     threshold: 55,
     freshness_days: 45,
+    require_title_match: true,
+    max_experience_gap: 2,
   },
   apply_answers: {
     citizenship: '',
@@ -192,6 +194,8 @@ function sanitizeCareer(settings: Settings): void {
   jp.open_to_relocation = Boolean(jp.open_to_relocation)
   jp.threshold = clampInt(jp.threshold, 0, 100, 55)
   jp.freshness_days = clampInt(jp.freshness_days, 3, 365, 45)
+  jp.require_title_match = jp.require_title_match !== false
+  jp.max_experience_gap = clampInt(jp.max_experience_gap, 0, 10, 2)
 
   const aa = settings.apply_answers as unknown as Json
   for (const [k, v] of Object.entries(aa)) {

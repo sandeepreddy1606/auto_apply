@@ -230,6 +230,72 @@ describe('jobs + sessions', () => {
   })
 })
 
+describe('scan sync never closes open jobs by accident', () => {
+  const job = (n: number) => ({ title: `Software Engineer ${n}`, url: `https://www.amazon.jobs/en/jobs/${n}/sde`, location: 'Bengaluru', matched: true, match_reason: null })
+  const activeCount = async (cid: number) =>
+    Number((await db.sql.one('SELECT COUNT(*) AS n FROM company_jobs WHERE company_id = ? AND active = 1', [cid]))?.n)
+
+  test('search window: jobs that drop out stay open until stale', async () => {
+    const c = (await db.addCompany('Amazon test', 'https://www.amazon.jobs/en/'))!
+    await db.syncCompanyJobs(c.id, [1, 2, 3, 4].map(job), { windowed: true })
+    const r = await db.syncCompanyJobs(c.id, [3, 4, 5].map(job), { windowed: true })
+    assert.equal(r.gone, 0, 'jobs 1 and 2 left the search window but may still be open')
+    assert.equal(await activeCount(c.id), 5)
+    // Not seen for longer than the stale window → closed.
+    const old = new Date(Date.now() - 20 * 86_400_000).toISOString()
+    await db.sql.run('UPDATE company_jobs SET last_seen_at = ? WHERE company_id = ? AND url LIKE ?', [old, c.id, '%/1/%'])
+    const r2 = await db.syncCompanyJobs(c.id, [3, 4, 5].map(job), { windowed: true })
+    assert.equal(r2.gone, 1)
+  })
+
+  test('a full board closes missing jobs, but a sudden partial scan does not', async () => {
+    const c = (await db.addCompany('Board test', 'https://boards.greenhouse.io/boardtest'))!
+    const many = Array.from({ length: 20 }, (_, i) => job(100 + i))
+    await db.syncCompanyJobs(c.id, many)
+    const normal = await db.syncCompanyJobs(c.id, many.slice(0, 18))
+    assert.equal(normal.gone, 2, 'a normal rescan closes what disappeared')
+    const partial = await db.syncCompanyJobs(c.id, many.slice(0, 3))
+    assert.equal(partial.gone, 0, '3 of 18 looks like a hiccup, not 15 closures')
+  })
+})
+
+describe('profile from resume', () => {
+  test('derives contact, links, education and current role', async () => {
+    const { profileFromResume } = await import('../lib/resume/profile-fill.ts')
+    const p = profileFromResume(BASE)
+    assert.equal(p.full_name, 'Alex Morgan', 'ALL CAPS name is title-cased')
+    assert.equal(p.email, 'alex.morgan@example.com')
+    assert.equal(p.phone, '9000000000')
+    assert.match(p.linkedin ?? '', /^https:\/\/www\.linkedin\.com\/in\/alexmorgan-dev/)
+    assert.match(p.github ?? '', /^https:\/\/github\.com\/alexmorgan-dev/)
+    assert.ok(p.current_role && p.current_company, 'current job from the "Present" entry')
+    assert.ok(p.college && p.degree)
+    assert.equal(p.graduation_year, undefined, 'an unfinished date range ("2022 -- TODO") gives no graduation year')
+  })
+
+  test('fills only empty fields and never overwrites yours', async () => {
+    const { fillProfileGaps } = await import('../lib/resume/profile-fill.ts')
+    const s = settings.load()
+    settings.save({ profile: { ...s.profile, full_name: 'My Own Name', email: '', phone: '' } })
+    const filled = fillProfileGaps(BASE)
+    const p = settings.load().profile
+    assert.equal(p.full_name, 'My Own Name')
+    assert.equal(p.email, 'alex.morgan@example.com')
+    assert.ok(filled.includes('email') && !filled.includes('full_name'))
+    assert.deepEqual(fillProfileGaps(BASE), [], 'second run has nothing left to fill')
+  })
+})
+
+describe('no paid AI routes', () => {
+  test('the claude CLI never sees API keys or cloud-billing settings', async () => {
+    const { subscriptionOnlyEnv, PAID_ENV_VARS } = await import('../lib/llm/provider.ts')
+    const env = subscriptionOnlyEnv({ PATH: '/bin', HOME: '/home/me', ANTHROPIC_API_KEY: 'sk-ant-x', CLAUDE_CODE_USE_BEDROCK: '1', ANTHROPIC_BASE_URL: 'https://proxy' } as unknown as NodeJS.ProcessEnv)
+    for (const k of PAID_ENV_VARS) assert.equal(env[k], undefined, k)
+    assert.equal(env.PATH, '/bin')
+    assert.equal(env.HOME, '/home/me')
+  })
+})
+
 describe('misc helpers', () => {
   test('claude -p output parsing', () => {
     const ok = parseClaudeOutput('{"type":"result","subtype":"success","is_error":false,"result":"done","structured_output":{"ok":true}}')

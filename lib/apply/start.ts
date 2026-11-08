@@ -2,6 +2,7 @@
  * Starting an application from a job, and the gates that decide what you can
  * do next. Every refusal says why and where to fix it.
  */
+import fs from 'node:fs'
 import { applyUrlFor } from '@/lib/jobs/ats'
 import { getJob } from '@/lib/jobs/store'
 import { lintBase, hasBlockingIssues } from '@/lib/resume/lint'
@@ -77,7 +78,11 @@ export async function canGenerate(): Promise<Gate> {
 export async function canLock(versionId: number): Promise<Gate> {
   const v = await getVersion(versionId)
   if (!v) return block('Version not found.')
-  if (!compilerAvailable()) return block('Install pdfLaTeX to compile your resume.', '/settings/setup')
+  // A ready-made PDF needs no compiler.
+  if (v.generated_by === 'upload') {
+    return v.pdf_path && fs.existsSync(v.pdf_path) ? pass : block('The uploaded PDF is missing — pick it again.')
+  }
+  if (!compilerAvailable()) return block('Install pdfLaTeX to compile your resume — or use a PDF you uploaded.', '/settings/setup')
   if (!v.compile_log?.ok || !v.pdf_path) return block('Compile this version successfully first.')
   if (v.ats_report?.checks.some((c) => c.id === 'todo' && c.status === 'fail')) return block('The PDF still contains “TODO”.', '/settings/resume?tab=issues')
   return pass
@@ -96,6 +101,10 @@ export async function canFill(s: ApplySession): Promise<Gate> {
 export async function canSubmit(s: ApplySession): Promise<Gate> {
   if (s.status !== 'reviewing') return block(s.status === 'needs_input' ? 'Answer the highlighted questions first.' : `Not ready (${s.status.replace('_', ' ')}).`)
   if (!s.fill_plan?.final_step_reached) return block('The form has more steps — continue filling.')
+  // The daily limit counts submissions, so check it here too — not only when an
+  // application is started (several can be open at once).
+  const cap = settingsStore.load().apply_automation.daily_cap
+  if ((await submittedToday()) >= cap) return block(`Daily limit of ${cap} applications reached.`, '/settings/apply')
   return pass
 }
 

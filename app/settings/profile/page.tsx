@@ -49,6 +49,17 @@ export default function ProfilePage() {
   const missingCore = CORE_FIELDS.filter((k) => !String(p[k] || '').trim())
   const completeness = Math.round((filled / PROFILE_FIELDS.length) * 100)
 
+  const fillFromResume = async () => {
+    if (s.dirty && !window.confirm('Discard your unsaved changes and fill empty fields from your resume?')) return
+    try {
+      const { filled } = await api.fillProfileFromResume()
+      await s.load()
+      toast(filled.length ? `Filled ${filled.length} field${filled.length > 1 ? 's' : ''} from your resume.` : 'Nothing to fill — every field your resume covers is already set.', 'success')
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
   const verifyResume = async () => {
     const path = (p.resume_path || '').trim()
     if (!path) {
@@ -86,6 +97,12 @@ export default function ProfilePage() {
                 .join(', ')}
             </p>
           )}
+          <div className="row-actions" style={{ marginTop: 4, marginBottom: 8 }}>
+            <button type="button" className="btn sm" onClick={fillFromResume}>
+              Fill empty fields from my resume
+            </button>
+            <span className="muted" style={{ fontSize: 12 }}>Name, email, phone, links, education, current role. Never overwrites what you typed.</span>
+          </div>
           <div className="grid-2">
             {PROFILE_FIELDS.map(([key, label]) =>
               key === 'willing_to_relocate' ? (

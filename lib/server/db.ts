@@ -480,14 +480,32 @@ export interface SyncResult extends ScanResult {
   needs_jd_ids: number[]
 }
 
+export interface SyncOptions {
+  /**
+   * The scan returned a search window (Amazon/Google/Microsoft) or possibly a
+   * partial list: a job missing from it may still be open. Missing jobs are
+   * only closed once they haven't been seen for `staleDays`.
+   */
+  windowed?: boolean
+  staleDays?: number
+}
+
+/** Below this share of the previous active count, a scan is treated as partial. */
+export const PARTIAL_SCAN_RATIO = 0.3
+
 /**
  * Upsert this scan's jobs; deactivate ones that disappeared from the page.
  * User state (new/seen/dismissed/applied) survives rescans, and a description
  * already fetched is never overwritten with an empty one.
+ *
+ * Closing is careful: a search window, or a scan that suddenly returns far
+ * fewer jobs than last time (site hiccup, rate limit), only closes jobs that
+ * haven't been seen for a while instead of everything missing right now.
  */
 export async function syncCompanyJobs(
   companyId: number,
   jobs: ScannedJob[],
+  opts: SyncOptions = {},
 ): Promise<SyncResult> {
   const now = nowIso()
   return tx(async (b) => {
@@ -541,10 +559,16 @@ export async function syncCompanyJobs(
       }
     }
     const rows = await b.all(
-      'SELECT id, url FROM company_jobs WHERE company_id = ? AND active = 1',
+      'SELECT id, url, last_seen_at FROM company_jobs WHERE company_id = ? AND active = 1',
       [companyId],
     )
-    const gone = rows.filter((r) => !seenUrls.has(String(r.url))).map((r) => Number(r.id))
+    const missing = rows.filter((r) => !seenUrls.has(String(r.url)))
+    const partial = rows.length >= 10 && jobs.length < rows.length * PARTIAL_SCAN_RATIO
+    const cautious = opts.windowed || partial
+    const staleBefore = Date.now() - (opts.staleDays ?? 14) * 86_400_000
+    const gone = missing
+      .filter((r) => !cautious || Date.parse(String(r.last_seen_at)) < staleBefore)
+      .map((r) => Number(r.id))
     for (const g of gone) {
       await b.run('UPDATE company_jobs SET active = 0 WHERE id = ?', [g])
     }

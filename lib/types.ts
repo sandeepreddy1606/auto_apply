@@ -291,6 +291,10 @@ export interface JobPrefs {
   excluded_companies: number[]
   threshold: number
   freshness_days: number
+  /** Only count a job as relevant when its title matches one of your target roles. */
+  require_title_match: boolean
+  /** Filter out jobs asking for more than this many years beyond your experience (10 = off). */
+  max_experience_gap: number
 }
 
 /** Settings → Application answers. '' = not set; keys listed in always_ask are never auto-filled. */
@@ -500,7 +504,8 @@ export interface ResumeVersion {
   ats_report: AtsReport | null
   guard_report: { flags: GuardFlag[]; notes: string[] } | null
   compile_log: { ok: boolean; errors: CompileError[] } | null
-  generated_by: 'base' | 'llm' | 'user'
+  /** 'upload' = a ready-made PDF from Settings → Resumes (no LaTeX, no compiler needed). */
+  generated_by: 'base' | 'llm' | 'user' | 'upload'
   status: 'draft' | 'locked' | 'generating' | 'awaiting_manual' | 'failed'
   hint: string | null
   error: string | null
