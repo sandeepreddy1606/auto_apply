@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 
 import CompaniesTabs from '@/components/CompaniesTabs'
+import { ScorePill } from '@/components/career/ui'
 import { CheckIcon, XIcon } from '@/components/Icons'
 import { useNavigate } from '@/components/Navigation'
 import PageHeader from '@/components/PageHeader'
@@ -109,6 +110,8 @@ function CompaniesJobs() {
         `${j.title} ${j.company_name} ${j.location || ''}`.toLowerCase().includes(s),
       )
     }
+    // "For you": best matches first.
+    if (view === 'foryou') list = [...list].sort((a, b) => (b.match_score ?? -1) - (a.match_score ?? -1))
     return list
   }, [jobs, view, companyF, locF, q])
 
@@ -140,8 +143,10 @@ function CompaniesJobs() {
     }
   }
 
+  /** Open the job's full details (description, score, Apply) inside the app. */
   const openJob = (job: CompanyJob) => {
     if (job.state === 'new') void setJobState(job, 'seen')
+    navigate(`/jobs/${job.id}`)
   }
 
   return (
@@ -267,21 +272,27 @@ function CompaniesJobs() {
               <div className="job-list">
                 {filtered.slice(0, limit).map((j) => (
                   <div key={j.id} className={`job-row ${j.state === 'new' ? 'is-new' : ''}`}>
+                    <ScorePill score={j.match_score ?? null} />
                     <div className="j-body">
-                      <a
-                        className="j-title"
-                        href={j.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={() => openJob(j)}
-                      >
+                      <button type="button" className="j-title as-link" onClick={() => openJob(j)} title="View the job details">
                         {j.title}
-                      </a>
+                      </button>
                       <div className="j-sub">
                         {j.company_name}
                         {j.location ? ` · ${j.location}` : ''}
                         {' · '}
-                        {timeAgo(j.first_seen_at)}
+                        {j.posted_at ? `posted ${timeAgo(j.posted_at)}` : `found ${timeAgo(j.first_seen_at)}`}
+                        {' · '}
+                        <a className="j-ext" href={j.url} target="_blank" rel="noreferrer" title="Open on the company’s site">
+                          {(() => {
+                            try {
+                              return new URL(j.url).host.replace(/^www\./, '')
+                            } catch {
+                              return 'site'
+                            }
+                          })()}{' '}
+                          ↗
+                        </a>
                         {j.matched === 1 && j.match_reason && (
                           <>
                             {' · '}

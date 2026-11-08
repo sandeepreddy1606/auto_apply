@@ -1,12 +1,18 @@
-import { bearerFrom, isPasswordSet, verifyToken } from '@/lib/server/auth'
-import { handler, json } from '@/lib/server/http'
+import { sessionFromRequest, setupState } from '@/lib/server/auth'
+import { authHandler } from '@/lib/server/auth-http'
+import { json } from '@/lib/server/http'
+import { load } from '@/lib/server/settings'
 
 export const dynamic = 'force-dynamic'
 
-export const GET = handler(async (req: Request) => {
-  const token = bearerFrom(req.headers.get('authorization'))
+/** What the sign-in screens need: which step to show, and who is signed in. */
+export const GET = authHandler(async (req: Request) => {
+  const state = await setupState()
+  const current = state === 'login' ? await sessionFromRequest(req) : null
+  const smtp = load().smtp
   return json({
-    password_set: isPasswordSet(),
-    authenticated: verifyToken(token),
+    state: current ? 'ready' : state,
+    user: current?.user ?? null,
+    email_reset: Boolean(smtp.host && smtp.username && smtp.password),
   })
 })

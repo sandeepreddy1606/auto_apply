@@ -8,6 +8,7 @@ import { useNavigate } from '@/components/Navigation'
 import PageHeader from '@/components/PageHeader'
 import { useToast } from '@/components/Toast'
 import { api } from '@/lib/api'
+import { career } from '@/lib/career-api'
 import type { CompaniesConfig, Company } from '@/lib/types'
 
 const timeAgo = (iso: string | null): string => {
@@ -279,7 +280,27 @@ export default function CompaniesManagePage() {
                           </strong>
                         </>
                       )}
+                      {c.ats_type && c.ats_type !== 'custom' && <> · detected: {c.ats_type} ✓</>}
                     </div>
+                    <select
+                      aria-label="Priority"
+                      value={c.priority ?? 'normal'}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={async (e) => {
+                        const priority = e.target.value
+                        try {
+                          await career.setCompanyPriority(c.id, priority)
+                          setCompanies((list) => list?.map((x) => (x.id === c.id ? { ...x, priority: priority as Company['priority'] } : x)) ?? list)
+                        } catch (err) {
+                          toast((err as Error).message, 'error')
+                        }
+                      }}
+                      style={{ width: 'auto', marginTop: 6, padding: '5px 30px 5px 10px', fontSize: 12 }}
+                    >
+                      <option value="high">High priority</option>
+                      <option value="normal">Normal priority</option>
+                      <option value="low">Low priority</option>
+                    </select>
                     {c.last_status === 'error' && (
                       <div className="error-text" style={{ marginTop: 4 }}>
                         ⚠ {c.last_error}

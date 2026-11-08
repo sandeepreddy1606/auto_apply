@@ -3,6 +3,8 @@ import type { Metadata, Viewport } from 'next'
 import AppShell from '@/components/AppShell'
 
 import './globals.css'
+import './career.css'
+import './auth.css'
 
 export const metadata: Metadata = {
   title: 'Auto Apply',

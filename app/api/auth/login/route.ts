@@ -1,13 +1,11 @@
-import { isPasswordSet, issueToken, verifyPassword } from '@/lib/server/auth'
-import { HttpError, handler, json, readJson } from '@/lib/server/http'
+import { clientMeta, login } from '@/lib/server/auth'
+import { authHandler, signedIn, str } from '@/lib/server/auth-http'
+import { readJson } from '@/lib/server/http'
 
 export const dynamic = 'force-dynamic'
 
-export const POST = handler(async (req: Request) => {
-  const body = await readJson<{ password?: string }>(req)
-  if (!isPasswordSet()) throw new HttpError(400, 'No password is set yet.')
-  if (!verifyPassword(body.password || '')) {
-    throw new HttpError(401, 'Incorrect password.')
-  }
-  return json({ token: issueToken() })
+export const POST = authHandler(async (req: Request) => {
+  const b = await readJson<Record<string, unknown>>(req)
+  const user = await login(str(b.email), str(b.password), clientMeta(req))
+  return signedIn(req, user, b.remember !== false)
 })

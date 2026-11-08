@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
 
   // teleproto, pg and nodemailer are CommonJS with dynamic requires — keep them
   // out of the server bundle so they load from node_modules at runtime.
-  serverExternalPackages: ['teleproto', 'pg', 'nodemailer'],
+  serverExternalPackages: ['teleproto', 'pg', 'nodemailer', 'playwright', 'playwright-core'],
 }
 
 export default nextConfig

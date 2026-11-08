@@ -1,136 +1,141 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+/**
+ * Session gate for the app. Sign-in lives on real pages (/login, /signup,
+ * /forgot); every other route waits here until the session is confirmed and
+ * otherwise redirects to the right one, remembering where you were going.
+ */
+import { usePathname, useRouter } from 'next/navigation'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { UNAUTHORIZED_EVENT, api, auth as tokenStore } from '@/lib/api'
+import type { AuthStatus, AuthUser, SignedIn } from '@/lib/api'
+import { UNAUTHORIZED_EVENT, api, extensionToken } from '@/lib/api'
 
-const AuthContext = createContext<{ logout: () => void } | null>(null)
+export const AUTH_ROUTES = ['/login', '/signup', '/forgot']
+export const isAuthRoute = (p: string) => AUTH_ROUTES.some((r) => p === r || p.startsWith(`${r}/`))
+
+interface AuthContextValue {
+  status: AuthStatus | null
+  user: AuthUser | null
+  /** Re-read /api/auth/status. */
+  refresh: () => Promise<AuthStatus | null>
+  /** Call after a successful sign-in/up/reset response. */
+  signedIn: (res: SignedIn) => void
+  setUser: (u: AuthUser) => void
+  logout: () => Promise<void>
+  /** Where to go after signing in (the page that sent you to /login). */
+  nextPath: () => string
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null)
+
 export const useAuth = () => {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used inside AuthProvider')
   return ctx
 }
 
-type Phase = 'loading' | 'setup' | 'login' | 'ready'
+function safeNext(raw: string | null): string {
+  // Only same-app paths: "/jobs?x=1" yes, "//evil.com" or "https://…" no.
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || isAuthRoute(raw.split('?')[0])) return '/'
+  return raw
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [phase, setPhase] = useState<Phase>('loading')
+  const pathname = usePathname()
+  const router = useRouter()
+  const [status, setStatus] = useState<AuthStatus | null>(null)
+  const [offline, setOffline] = useState(false)
 
-  const check = useCallback(async () => {
+  const refresh = useCallback(async () => {
     try {
       const s = await api.authStatus()
-      if (!s.password_set) setPhase('setup')
-      else if (s.authenticated) setPhase('ready')
-      else setPhase('login')
+      setStatus(s)
+      setOffline(false)
+      return s
     } catch {
-      // Backend unreachable — retry shortly rather than locking the user out.
-      setPhase('loading')
-      setTimeout(check, 2000)
+      // Server unreachable (restarting) — retry instead of bouncing to login.
+      setOffline(true)
+      setTimeout(() => void refresh(), 2000)
+      return null
     }
   }, [])
 
   useEffect(() => {
-    void check()
-  }, [check])
+    void refresh()
+  }, [refresh])
 
+  // Session expired or revoked from another device.
   useEffect(() => {
-    const onUnauth = () => setPhase('login')
+    const onUnauth = () => {
+      setStatus((s) => (s && s.state === 'ready' ? { ...s, state: 'login', user: null } : s))
+    }
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauth)
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauth)
   }, [])
 
-  const logout = useCallback(() => {
-    tokenStore.clear()
-    setPhase('login')
-  }, [])
+  const onAuthPage = isAuthRoute(pathname)
 
-  if (phase === 'loading') {
-    return (
-      <div className="auth-screen">
-        <p className="muted">Connecting…</p>
-      </div>
-    )
-  }
-  if (phase === 'setup') return <AuthForm mode="setup" onDone={() => setPhase('ready')} />
-  if (phase === 'login') return <AuthForm mode="login" onDone={() => setPhase('ready')} />
-
-  return <AuthContext.Provider value={{ logout }}>{children}</AuthContext.Provider>
-}
-
-function AuthForm({ mode, onDone }: { mode: 'setup' | 'login'; onDone: () => void }) {
-  const setup = mode === 'setup'
-  const [password, setPassword] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    if (setup) {
-      if (password.length < 6) {
-        setError('Password must be at least 6 characters.')
-        return
-      }
-      if (password !== confirm) {
-        setError('Passwords don’t match.')
-        return
-      }
-    } else if (!password) {
-      setError('Enter your password.')
+  // Redirects: signed-out users to /login or /signup; signed-in users off the auth pages.
+  useEffect(() => {
+    if (!status) return
+    if (status.state === 'ready') {
+      // /signup and /forgot redirect themselves — they may still be showing a
+      // one-time recovery code after you're signed in.
+      if (pathname === '/login') router.replace(safeNext(new URLSearchParams(window.location.search).get('next')))
       return
     }
-    setBusy(true)
-    try {
-      const { token } = setup
-        ? await api.authSetup(password)
-        : await api.authLogin(password)
-      tokenStore.set(token)
-      onDone()
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setBusy(false)
+    if (onAuthPage) {
+      // Send you to the screen that matches the app's state.
+      if (status.state !== 'login' && pathname === '/login') router.replace('/signup')
+      if (status.state === 'login' && pathname === '/signup') router.replace('/login')
+      return
     }
-  }
+    const here = window.location.pathname + window.location.search
+    const target = status.state === 'login' ? '/login' : '/signup'
+    router.replace(here && here !== '/' ? `${target}?next=${encodeURIComponent(here)}` : target)
+  }, [status, onAuthPage, pathname, router])
 
+  const signedIn = useCallback((res: SignedIn) => {
+    extensionToken.set(res.token)
+    setStatus((s) => ({ state: 'ready', user: res.user, email_reset: s?.email_reset ?? false }))
+  }, [])
+
+  const setUser = useCallback((u: AuthUser) => {
+    setStatus((s) => (s ? { ...s, user: u } : s))
+  }, [])
+
+  const logout = useCallback(async () => {
+    try {
+      await api.logout()
+    } catch {
+      /* the cookie is cleared server-side when reachable; carry on locally */
+    }
+    extensionToken.clear()
+    setStatus((s) => ({ state: 'login', user: null, email_reset: s?.email_reset ?? false }))
+    router.replace('/login')
+  }, [router])
+
+  const nextPath = useCallback(() => safeNext(new URLSearchParams(window.location.search).get('next')), [])
+
+  const value = useMemo<AuthContextValue>(
+    () => ({ status, user: status?.user ?? null, refresh, signedIn, setUser, logout, nextPath }),
+    [status, refresh, signedIn, setUser, logout, nextPath],
+  )
+
+  let body: ReactNode
+  if (onAuthPage) body = status ? children : <Splash offline={offline} />
+  else body = status?.state === 'ready' ? children : <Splash offline={offline} />
+
+  return <AuthContext.Provider value={value}>{body}</AuthContext.Provider>
+}
+
+function Splash({ offline }: { offline: boolean }) {
   return (
-    <div className="auth-screen">
-      <form className="auth-card" onSubmit={submit}>
-        <div className="auth-logo">⚡</div>
-        <h1>Auto Apply</h1>
-        <p className="muted">
-          {setup
-            ? 'Create a password to protect your dashboard. You’ll enter it to sign in from now on.'
-            : 'Enter your password to unlock the dashboard.'}
-        </p>
-        <input
-          type="password"
-          autoFocus
-          placeholder={setup ? 'Choose a password' : 'Password'}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        {setup && (
-          <input
-            type="password"
-            placeholder="Confirm password"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-          />
-        )}
-        {error && <p className="error-text">{error}</p>}
-        <button className="btn primary" style={{ padding: 14 }} disabled={busy} type="submit">
-          {busy ? 'Please wait…' : setup ? 'Create password & continue' : 'Sign in'}
-        </button>
-        {setup && (
-          <p className="muted" style={{ fontSize: 11.5 }}>
-            No account or email needed — this is a single password stored only on this
-            machine. If you forget it, delete <code>data/auth.json</code> to reset.
-          </p>
-        )}
-      </form>
+    <div className="auth-splash" aria-busy="true">
+      <div className="auth-mark">⚡</div>
+      <p className="muted">{offline ? 'Waiting for the server to start…' : 'Loading…'}</p>
     </div>
   )
 }

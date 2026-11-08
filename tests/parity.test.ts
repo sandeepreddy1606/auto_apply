@@ -19,11 +19,15 @@ import { describe, test } from 'node:test'
 
 const root = path.resolve(import.meta.dirname, '..')
 
+// Node < 22.18 needs the flag to run .ts files directly; newer versions accept it too.
+const TS_FLAGS = ['--experimental-strip-types', '--no-warnings']
+
 const golden = (name: string): string =>
-  fs.readFileSync(path.join(root, 'tests/fixtures/golden', name), 'utf-8')
+  // Normalize CRLF: Windows checkouts with core.autocrlf rewrite the snapshot files.
+  fs.readFileSync(path.join(root, 'tests/fixtures/golden', name), 'utf-8').replace(/\r\n/g, '\n')
 
 const dump = (script: string): string =>
-  execFileSync(process.execPath, [script], {
+  execFileSync(process.execPath, [...TS_FLAGS, script], {
     cwd: root,
     encoding: 'utf-8',
     maxBuffer: 32 * 1024 * 1024,

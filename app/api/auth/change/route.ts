@@ -1,15 +1,13 @@
-import { changePassword, issueToken } from '@/lib/server/auth'
-import { HttpError, handler, json, readJson } from '@/lib/server/http'
+import { changePassword } from '@/lib/server/auth'
+import { authHandler, requireSession, str } from '@/lib/server/auth-http'
+import { json, readJson } from '@/lib/server/http'
 
 export const dynamic = 'force-dynamic'
 
-export const POST = handler(async (req: Request) => {
-  const body = await readJson<{ current?: string; new?: string }>(req)
-  try {
-    changePassword(body.current || '', body.new || '')
-  } catch (e) {
-    throw new HttpError(400, (e as Error).message)
-  }
-  // Old tokens are now invalid (secret rotated); hand back a fresh one.
-  return json({ token: issueToken() })
+/** Change password; keeps this device signed in and signs out every other one. */
+export const POST = authHandler(async (req: Request) => {
+  const { user, session } = await requireSession(req)
+  const b = await readJson<Record<string, unknown>>(req)
+  await changePassword(user.id, str(b.current), str(b.new), session.id)
+  return json({ ok: true })
 })

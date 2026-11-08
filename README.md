@@ -50,6 +50,29 @@ npm run typecheck    # tsc --noEmit
 npm test             # parity + unit tests (see Tests below)
 ```
 
+## Accounts & sign-in
+
+- **First run:** the app opens on **Create account**: name, email and password.
+  You then get a one-time **recovery code**; save it. Sign-up closes after
+  this first account, because the app holds one person's profile, resumes and
+  Telegram login.
+- **Sign in** with your email and password. "Keep me signed in" lasts 30 days.
+  Untick it on a shared computer, and the session ends when the browser closes
+  or after 12 idle hours. Five wrong passwords lock sign-in for 15 minutes.
+- **Forgot password:** use your recovery code, or an emailed 6-digit code if
+  SMTP is set up. If you've lost both, run `npm run auth:recover` on the
+  computer running the app; it prints a new recovery code.
+- **Settings → Account & security:** change your name or email, change your
+  password (this signs out other devices), make a new recovery code, see every
+  signed-in device and sign any of them out.
+- **Upgrading from the old single password:** the first visit asks for that
+  password plus your name and email, and turns it into an account. Nothing
+  else changes.
+- **How it's stored:** passwords are hashed with scrypt. Sessions are random
+  tokens kept in an httpOnly cookie, and only their hash is stored. Writes made
+  with the cookie from another site are blocked. The browser extension still
+  works; it uses the same token as a bearer header.
+
 ## Setup (one time, in the UI → Settings)
 
 1. **Profile** — name, email, phone, experience, skills, links, and:
@@ -108,13 +131,63 @@ Telegram message ──▶ rule-based parser
 - Run **one** instance at a time: the MTProto session must have a single holder,
   so scaling to multiple replicas would log the others out.
 
+## Career-page apply flow
+
+Add companies → see every job with its description and a relevance score →
+**Apply** → tailor your LaTeX resume for the job → the app autofills the
+application in a real browser → you review every field → submit → tracked.
+Design: [`report/CAREER_APPLY_FLOW.md`](report/CAREER_APPLY_FLOW.md).
+
+```
+Jobs ─▶ Apply ─▶ ① Resume Studio ─▶ ② Autofill ─▶ ③ Review ─▶ ④ Submit ─▶ Applications
+         (base copy, AI-tailored      (Playwright, visible   (every answer,  (real submit
+          versions, LaTeX editor,      Chromium, your PDF     screenshot,     button,
+          PDF preview, ATS report)     uploaded)              learning)       confirmation)
+```
+
+**Which career URLs work**
+- **ATS boards:** Greenhouse, Lever, Ashby, Workable, SmartRecruiters,
+  Recruitee and Workday. The scanner reads every opening.
+- **Big employers with their own sites:** Amazon (any amazon.jobs page),
+  Microsoft (careers.microsoft.com, and other Eightfold-hosted sites) and
+  Google (google.com/about/careers). These hold thousands of jobs worldwide, so
+  the scanner *searches* them using your **target roles and locations** from
+  Settings → Job preferences. With no roles set, it uses the job titles on your
+  resume. If you paste a search URL, the scanner uses that search's own filters.
+- **Other company pages:** the scanner reads JobPosting data or links to
+  individual postings. Section links like "Military careers" are ignored. If a
+  page builds its list with JavaScript, it is rendered once in a headless
+  browser.
+
+**Everything is configured in the app** — start at **Settings → Setup & health**,
+which checks and one-click-installs what's missing (MiKTeX for pdfLaTeX, Poppler,
+Playwright Chromium), then work through Job preferences, Resume (your base `.tex`,
+its **Issues** with inline fixes, fact bank, skills inventory, output), Application
+answers, AI and Apply automation.
+
+- **AI uses your Claude Pro plan** through the local Claude Code CLI
+  (`claude -p --json-schema … --tools ""`), signed in once with `claude` → `/login`.
+  Manual copy/paste mode works without it.
+- **No invented claims**: the AI only returns a JSON plan (which facts to keep,
+  how to reword them); code rejects any new number, technology, employer or date,
+  renders into *your* template, compiles, fits to your page limit and runs an ATS check.
+- **A background worker** (`worker/index.ts`) runs browser automation, Claude
+  calls and description fetches. The web server starts and supervises it
+  automatically; `npm run worker` runs it by hand (`AUTO_APPLY_NO_WORKER=1` to
+  stop the server from starting one).
+- Files live in `data/`: resume versions (`data/resumes/versions/`), screenshots
+  (`data/apply/`), the automation browser profile (`data/browser-profile/`),
+  logs (`data/logs/worker.log`). A `data/seed/base_resume.tex` is imported as
+  your default base resume on first run.
+
 ## Tests
 
 ```bash
-npm test
+npm test                    # unit: parity + auth/settings + career flow (112 tests)
+npm run build && npm run test:integration   # browser + full-stack (18 tests)
+AA_LIVE=1 node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve.mjs \
+  --test tests/live/tailor-live.test.ts     # one real Claude Code call (uses your Pro limit)
 ```
-
-Two suites:
 
 - **Golden parity** — pins message parsing, job-title matching, email template
   rendering and Google Form field mapping against snapshots in
@@ -122,8 +195,22 @@ Two suites:
   implementation and verified byte-identical against this port before the Python
   was removed, so a diff here means behaviour drifted from the system this
   replaced.
-- **Unit** — auth token issue/verify/rotate and the settings merge/sanitise
-  rules, against a throwaway `AUTO_APPLY_DATA_DIR`.
+- **Unit**: accounts (sign-up, login lockout, sessions, password change,
+  recovery-code and emailed-code reset, cookie/CSRF helpers), the upgrade from
+  the old single password (`tests/auth-legacy.test.ts`), and the settings
+  merge/sanitise rules, all against a throwaway `AUTO_APPLY_DATA_DIR`.
+- **Career flow (unit)** — `tests/career.test.ts` (skills, JD analysis, scoring,
+  ATS detection, HTML sanitising, the lossless LaTeX round trip on a real resume,
+  fact bank, tailoring guards, plan application, the base-resume linter, the
+  answer resolver) and `tests/career-db.test.ts` (migrations, task queue, settings
+  sections, resume store/undo, sessions + state machine, answer bank, rescoring).
+- **Integration** — `tests/integration/apply-flow.test.ts` fills, reviews and
+  submits local mock application forms in headless Chromium (single page,
+  multi-step, sign-in wall, validation error, navigation allowlist);
+  `tests/integration/server.test.ts` boots the production server + worker and
+  drives the HTTP API end to end with the manual AI provider.
+- `node scripts/ui-snapshots.mjs <dir>` screenshots the main pages at laptop and
+  phone widths against demo data (needs a build).
 
 ## Migrating from the Python build
 

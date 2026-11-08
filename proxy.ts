@@ -1,45 +1,46 @@
 /**
- * Auth gate for /api. Mirrors the FastAPI `_auth_gate` middleware: everything
- * under /api needs a bearer token except a small public allowlist.
+ * Auth gate for /api: everything needs a signed-in session except a small
+ * public allowlist (sign-up, sign-in, password reset, health).
  *
- * Next 16's proxy file always runs on the Node.js runtime, which this needs:
- * token verification uses node:crypto and reads data/auth.json.
+ * The session comes from the httpOnly `aa_session` cookie (the web app), an
+ * `Authorization: Bearer` header (the browser extension, scripts) or `?token=`
+ * on live event streams. Cookie-authenticated writes must come from this app
+ * (Sec-Fetch-Site / Origin check) so another site can't act on your behalf.
+ *
+ * Next 16's proxy runs on the Node.js runtime, which this needs (node:crypto
+ * and the database).
  */
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
-import { bearerFrom, isPasswordSet, verifyToken } from '@/lib/server/auth'
+import { isCrossSite, resolveSession, tokenFromRequest } from '@/lib/server/auth'
 
-// Endpoints reachable without a token. Everything else under /api requires one.
 const PUBLIC_API = new Set([
   '/api/health',
   '/api/auth/status',
   '/api/auth/login',
-  '/api/auth/setup',
+  '/api/auth/signup',
+  '/api/auth/upgrade',
+  '/api/auth/forgot',
+  '/api/auth/reset',
+  '/api/auth/logout',
 ])
 
-export default function proxy(request: NextRequest) {
+const SAFE = new Set(['GET', 'HEAD', 'OPTIONS'])
+
+export default async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
+  if (request.method === 'OPTIONS' || !pathname.startsWith('/api')) return NextResponse.next()
 
-  // Non-API routes (the app UI) and CORS preflight pass through.
-  if (
-    request.method === 'OPTIONS' ||
-    !pathname.startsWith('/api') ||
-    PUBLIC_API.has(pathname)
-  ) {
-    return NextResponse.next()
+  const t = tokenFromRequest(request)
+  if (!SAFE.has(request.method) && t?.via !== 'bearer' && isCrossSite(request)) {
+    return NextResponse.json({ detail: 'Cross-site request blocked.' }, { status: 403 })
   }
+  if (PUBLIC_API.has(pathname)) return NextResponse.next()
 
-  // No password configured yet -> block real endpoints so the UI can bootstrap
-  // through the setup flow only.
-  if (!isPasswordSet()) {
-    return NextResponse.json({ detail: 'Set up a password first.' }, { status: 401 })
+  if (!t || !(await resolveSession(t.token))) {
+    return NextResponse.json({ detail: 'Please sign in.' }, { status: 401 })
   }
-
-  if (!verifyToken(bearerFrom(request.headers.get('authorization')))) {
-    return NextResponse.json({ detail: 'Not authenticated.' }, { status: 401 })
-  }
-
   return NextResponse.next()
 }
 

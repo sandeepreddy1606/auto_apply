@@ -22,6 +22,7 @@ import type {
 } from '@/lib/types'
 
 import { DATABASE_URL } from './env'
+import { runMigrations } from './migrations'
 import { DB_PATH } from './paths'
 
 export const IS_PG = /^postgres(ql)?:\/\//.test(DATABASE_URL)
@@ -175,6 +176,9 @@ async function makeSqliteDriver(): Promise<Driver> {
   const { DatabaseSync } = await import('node:sqlite')
   const db = new DatabaseSync(DB_PATH)
   db.exec('PRAGMA journal_mode=WAL')
+  // The web server and the worker process share this file; wait for the other
+  // writer's lock instead of failing immediately with SQLITE_BUSY.
+  db.exec('PRAGMA busy_timeout=8000')
 
   const base: Backend = {
     async all(sql, params = []) {
@@ -230,6 +234,7 @@ async function initDriver(): Promise<Driver> {
       await driver.run('ALTER TABLE applications ADD COLUMN apply_url TEXT')
     }
   }
+  await runMigrations(driver, IS_PG)
   return driver
 }
 
@@ -460,42 +465,79 @@ export interface ScannedJob {
   location: string | null
   matched: boolean
   match_reason: string | null
+  // Career-flow extras (all optional so older callers keep working).
+  description_html?: string | null
+  description_text?: string | null
+  posted_at?: string | null
+  ats_job_id?: string | null
+  apply_url?: string | null
+  match_score?: number | null
+  match_breakdown?: string | null
+}
+
+export interface SyncResult extends ScanResult {
+  new_ids: number[]
+  needs_jd_ids: number[]
 }
 
 /**
  * Upsert this scan's jobs; deactivate ones that disappeared from the page.
- * User state (new/seen/dismissed/applied) survives rescans.
+ * User state (new/seen/dismissed/applied) survives rescans, and a description
+ * already fetched is never overwritten with an empty one.
  */
 export async function syncCompanyJobs(
   companyId: number,
   jobs: ScannedJob[],
-): Promise<ScanResult> {
+): Promise<SyncResult> {
   const now = nowIso()
   return tx(async (b) => {
     let created = 0
     let matched = 0
+    const newIds: number[] = []
+    const needsJd: number[] = []
     const seenUrls = new Set<string>()
     for (const j of jobs) {
       seenUrls.add(j.url)
       if (j.matched) matched += 1
+      const desc = j.description_html ?? null
+      const text = j.description_text ?? null
       const row = await b.one(
-        'SELECT id FROM company_jobs WHERE company_id = ? AND url = ?',
+        'SELECT id, description_text FROM company_jobs WHERE company_id = ? AND url = ?',
         [companyId, j.url],
       )
       if (row) {
         await b.run(
           'UPDATE company_jobs SET title = ?, location = ?, matched = ?, ' +
-            'match_reason = ?, last_seen_at = ?, active = 1 WHERE id = ?',
-          [j.title, j.location, j.matched ? 1 : 0, j.match_reason, now, Number(row.id)],
+            'match_reason = ?, last_seen_at = ?, active = 1, ' +
+            'description_html = COALESCE(?, description_html), ' +
+            'description_text = COALESCE(?, description_text), ' +
+            'jd_fetched_at = CASE WHEN ? IS NULL THEN jd_fetched_at ELSE ? END, ' +
+            'posted_at = COALESCE(?, posted_at), ats_job_id = COALESCE(?, ats_job_id), ' +
+            'apply_url = COALESCE(?, apply_url), match_score = ?, match_breakdown = ? ' +
+            'WHERE id = ?',
+          [
+            j.title, j.location, j.matched ? 1 : 0, j.match_reason, now,
+            desc, text, text, text ? now : null,
+            j.posted_at ?? null, j.ats_job_id ?? null, j.apply_url ?? null,
+            j.match_score ?? null, j.match_breakdown ?? null, Number(row.id),
+          ],
         )
+        if (!text && !row.description_text) needsJd.push(Number(row.id))
       } else {
-        await b.run(
+        const id = await b.insert(
           'INSERT INTO company_jobs (company_id, url, title, location, matched, ' +
-            "match_reason, first_seen_at, last_seen_at, active, state) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'new')",
-          [companyId, j.url, j.title, j.location, j.matched ? 1 : 0, j.match_reason, now, now],
+            'match_reason, first_seen_at, last_seen_at, active, state, description_html, ' +
+            'description_text, jd_fetched_at, posted_at, ats_job_id, apply_url, match_score, ' +
+            "match_breakdown) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'new', ?, ?, ?, ?, ?, ?, ?, ?)",
+          [
+            companyId, j.url, j.title, j.location, j.matched ? 1 : 0, j.match_reason, now, now,
+            desc, text, text ? now : null, j.posted_at ?? null, j.ats_job_id ?? null,
+            j.apply_url ?? null, j.match_score ?? null, j.match_breakdown ?? null,
+          ],
         )
         created += 1
+        newIds.push(id)
+        if (!text) needsJd.push(id)
       }
     }
     const rows = await b.all(
@@ -506,7 +548,14 @@ export async function syncCompanyJobs(
     for (const g of gone) {
       await b.run('UPDATE company_jobs SET active = 0 WHERE id = ?', [g])
     }
-    return { found: jobs.length, new: created, matched, gone: gone.length }
+    return {
+      found: jobs.length,
+      new: created,
+      matched,
+      gone: gone.length,
+      new_ids: newIds,
+      needs_jd_ids: needsJd,
+    }
   })
 }
 
@@ -589,4 +638,23 @@ export async function companyJobsSummary(): Promise<CompanyJobsSummary> {
   )
   const companies = toNum((await one('SELECT COUNT(*) AS n FROM companies'))?.n)
   return { new_matched: newMatched, total_matched: totalMatched, companies }
+}
+
+// ---------- shared access for the career-flow modules ----------
+// The newer modules (jobs, resume, apply, tasks) keep their own queries next
+// to their logic; they reach the same lazily-initialised driver through this.
+
+export const sql = { all, one, run, insert, tx, nowIso, LIKE, IS_PG }
+export type SqlParam = Param
+export type SqlRow = Row
+
+/** Parse a JSON TEXT column, tolerating null and malformed values. */
+export function parseJson<T>(v: unknown): T | null {
+  if (v == null || v === '') return null
+  if (typeof v !== 'string') return v as T
+  try {
+    return JSON.parse(v) as T
+  } catch {
+    return null
+  }
 }

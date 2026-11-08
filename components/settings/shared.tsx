@@ -156,7 +156,9 @@ export function Input({
   )
 }
 
-type SectionName = 'profile' | 'smtp' | 'email_template' | 'telegram' | 'automation' | 'companies'
+type SectionName =
+  | 'profile' | 'smtp' | 'email_template' | 'telegram' | 'automation' | 'companies'
+  | 'job_prefs' | 'apply_answers' | 'resume_prefs' | 'ai' | 'apply_automation'
 
 /**
  * One settings section per page: loads the full settings (for cross-section

@@ -1,6 +1,7 @@
 /**
- * Browser-side API client. Paths and the `aa_token` storage key are unchanged
- * from the previous build so the companion browser extension keeps working.
+ * Browser-side API client. The session lives in an httpOnly cookie, so requests
+ * carry no token. The token is also mirrored to localStorage `aa_token` only
+ * for the companion browser extension, which reads it from there.
  */
 import type {
   Application,
@@ -22,11 +23,57 @@ import type {
 
 const TOKEN_KEY = 'aa_token'
 
-export const auth = {
-  get: (): string | null =>
-    typeof window === 'undefined' ? null : localStorage.getItem(TOKEN_KEY),
-  set: (t: string): void => localStorage.setItem(TOKEN_KEY, t),
-  clear: (): void => localStorage.removeItem(TOKEN_KEY),
+/** Extension bridge only — the app itself authenticates with the cookie. */
+export const extensionToken = {
+  set: (t: string | undefined): void => {
+    try {
+      if (t) localStorage.setItem(TOKEN_KEY, t)
+    } catch {
+      /* storage blocked */
+    }
+  },
+  clear: (): void => {
+    try {
+      localStorage.removeItem(TOKEN_KEY)
+    } catch {
+      /* storage blocked */
+    }
+  },
+}
+
+export interface AuthUser {
+  id: number
+  email: string
+  name: string
+  role: string
+  created_at: string
+  password_changed_at: string | null
+  last_login_at: string | null
+}
+
+export type AuthState = 'signup' | 'upgrade' | 'login' | 'ready'
+
+export interface AuthStatus {
+  state: AuthState
+  user: AuthUser | null
+  email_reset: boolean
+}
+
+export interface AuthSession {
+  id: number
+  remember: boolean
+  user_agent: string | null
+  ip: string | null
+  created_at: string
+  last_seen_at: string
+  expires_at: string
+  current: boolean
+}
+
+export interface SignedIn {
+  user: AuthUser
+  token: string
+  recovery_code?: string
 }
 
 export const UNAUTHORIZED_EVENT = 'aa-unauthorized'
@@ -42,25 +89,23 @@ async function errorFrom(res: Response): Promise<Error> {
   return new Error(detail)
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = auth.get()
+/** Tell the app the session ended (expired, or signed out from another device). */
+export function signalUnauthorized(path: string, status: number): void {
+  if (status === 401 && !path.startsWith('/api/auth/') && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+  }
+}
+
+export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     ...options,
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
   })
-  if (res.status === 401 && !path.startsWith('/api/auth/')) {
-    // Only log out if the token that got rejected is still the current one. A
-    // slow request issued with an old token (e.g. a background poll that
-    // overlaps a password change) must NOT bounce the freshly-authed user.
-    if (auth.get() === token) {
-      auth.clear()
-      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
-    }
-  }
+  signalUnauthorized(path, res.status)
   if (!res.ok) throw await errorFrom(res)
   return res.json() as Promise<T>
 }
@@ -80,14 +125,29 @@ const post = (body: unknown = {}): RequestInit => ({
 })
 
 export const api = {
-  authStatus: () =>
-    request<{ password_set: boolean; authenticated: boolean }>('/api/auth/status'),
-  authSetup: (password: string) =>
-    request<{ token: string }>('/api/auth/setup', post({ password })),
-  authLogin: (password: string) =>
-    request<{ token: string }>('/api/auth/login', post({ password })),
+  authStatus: () => request<AuthStatus>('/api/auth/status'),
+  signup: (b: { name: string; email: string; password: string }) =>
+    request<SignedIn>('/api/auth/signup', post(b)),
+  upgrade: (b: { name: string; email: string; current_password: string; new_password?: string }) =>
+    request<SignedIn>('/api/auth/upgrade', post(b)),
+  login: (email: string, password: string, remember: boolean) =>
+    request<SignedIn>('/api/auth/login', post({ email, password, remember })),
+  logout: () => request<{ ok: boolean }>('/api/auth/logout', post()),
+  forgot: (email: string) => request<{ ok: boolean }>('/api/auth/forgot', post({ email })),
+  reset: (b: { email: string; password: string; code?: string; recovery_code?: string }) =>
+    request<SignedIn>('/api/auth/reset', post(b)),
+  me: () => request<{ user: AuthUser; session_id: number }>('/api/auth/me'),
+  updateMe: (b: { name?: string; email?: string; password?: string }) =>
+    request<{ user: AuthUser }>('/api/auth/me', { method: 'PATCH', body: JSON.stringify(b) }),
   authChange: (current: string, next: string) =>
-    request<{ token: string }>('/api/auth/change', post({ current, new: next })),
+    request<{ ok: boolean }>('/api/auth/change', post({ current, new: next })),
+  newRecoveryCode: (password: string) =>
+    request<{ recovery_code: string }>('/api/auth/recovery', post({ password })),
+  sessions: () => request<{ sessions: AuthSession[] }>('/api/auth/sessions'),
+  revokeSession: (id: number) =>
+    request<{ ok: boolean }>(`/api/auth/sessions/${id}`, { method: 'DELETE' }),
+  revokeOtherSessions: () =>
+    request<{ revoked: number }>('/api/auth/sessions/revoke-others', post()),
 
   stats: () => request<Stats>('/api/stats'),
   activity: () => request<Record<string, number>>('/api/activity'),
@@ -130,16 +190,8 @@ export const api = {
     fd.append('file', file)
     fd.append('name', name || '')
     fd.append('keywords', keywords || '')
-    const token = auth.get()
-    const res = await fetch('/api/resumes', {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      body: fd,
-    })
-    if (res.status === 401) {
-      auth.clear()
-      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
-    }
+    const res = await fetch('/api/resumes', { method: 'POST', credentials: 'same-origin', body: fd })
+    signalUnauthorized('/api/resumes', res.status)
     if (!res.ok) throw await errorFrom(res)
     return res.json() as Promise<ResumeMeta>
   },
@@ -151,10 +203,8 @@ export const api = {
   deleteResume: (id: string) =>
     request<{ ok: boolean }>(`/api/resumes/${id}`, { method: 'DELETE' }),
   downloadResume: async (id: string, filename?: string) => {
-    const token = auth.get()
-    const res = await fetch(`/api/resumes/${id}/file`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
+    const res = await fetch(`/api/resumes/${id}/file`, { credentials: 'same-origin' })
+    signalUnauthorized('/api/resumes', res.status)
     if (!res.ok) throw new Error('Could not download the file.')
     const url = URL.createObjectURL(await res.blob())
     const a = document.createElement('a')

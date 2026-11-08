@@ -32,6 +32,13 @@ export async function register(): Promise<void> {
   })
 
   void companyScanLoop(db, scanner, settingsStore)
+
+  // The worker runs browser automation, Claude calls and JD fetches in its own
+  // process. AUTO_APPLY_NO_WORKER=1 skips it (e.g. when you run it yourself).
+  if (process.env.AUTO_APPLY_NO_WORKER !== '1') {
+    const { superviseWorker } = await import('@/lib/server/worker-supervisor')
+    void superviseWorker()
+  }
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

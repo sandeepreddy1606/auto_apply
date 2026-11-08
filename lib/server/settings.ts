@@ -1,7 +1,7 @@
 /** JSON-file settings store (profile, SMTP, templates, telegram, automation). */
 import fs from 'node:fs'
 
-import type { Settings } from '@/lib/types'
+import type { AiConfig, JobPrefs, ResumePrefs, Settings } from '@/lib/types'
 
 import { SETTINGS_PATH } from './paths'
 
@@ -83,6 +83,166 @@ export const DEFAULTS: Settings = {
   },
   // Uploaded resumes: [{id, name, original, stored, keywords, is_default, size_kb, added_at}]
   resumes: [],
+  job_prefs: {
+    target_roles: [],
+    seniority: ['intern', 'new_grad', 'junior'],
+    experience_years_override: '',
+    locations: [],
+    remote_ok: true,
+    open_to_relocation: true,
+    include_keywords: [],
+    exclude_keywords: ['Senior', 'Staff', 'Principal', 'Lead', 'Manager', '5+ years', '10+ years'],
+    excluded_companies: [],
+    threshold: 55,
+    freshness_days: 45,
+  },
+  apply_answers: {
+    citizenship: '',
+    authorized_india: '',
+    other_countries: '',
+    sponsorship_now: '',
+    sponsorship_future: '',
+    notice_period: '',
+    start_date: '',
+    currency: 'INR',
+    current_ctc: '',
+    expected_ctc: '',
+    salary_text: 'Negotiable',
+    leave_salary_blank: true,
+    relocation: '',
+    work_modes: ['Onsite', 'Hybrid', 'Remote'],
+    travel: '',
+    gender: '',
+    pronouns: '',
+    race: '',
+    veteran: '',
+    disability: '',
+    hear_about: 'Company careers page',
+    languages: '',
+    over_18: 'Yes',
+    background_check: '',
+    always_ask: ['background_check'],
+  },
+  resume_prefs: {
+    max_pages: 2,
+    filename_pattern: '{First}_{Last}_Resume.pdf',
+    style: 'balanced',
+    rewrite_summary: true,
+    projects_count: 3,
+    drift_threshold: 60,
+  },
+  ai: {
+    provider: 'claude-code',
+    model: '',
+    timeout_s: 180,
+    daily_cap: 40,
+    fallback_manual: true,
+    claude_path: '',
+    api_key: '',
+  },
+  apply_automation: {
+    headless: false,
+    session_timeout_min: 20,
+    daily_cap: 20,
+    duplicate_days: 14,
+    typing_delay_ms: 40,
+    screenshot_retention_days: 90,
+    extra_domains: [],
+  },
+}
+
+/** Clamp a numeric setting into [min, max], falling back when it isn't a number. */
+export function clampInt(v: unknown, min: number, max: number, fallback: number): number {
+  const n = Number.parseInt(String(v ?? '').trim(), 10)
+  return Number.isFinite(n) ? Math.min(Math.max(n, min), max) : fallback
+}
+
+/** Normalize a chip list: strings only, trimmed, de-duplicated case-insensitively. */
+export function cleanList(v: unknown, maxLen = 80): string[] {
+  const arr = Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[,\n]/) : []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const item of arr) {
+    if (typeof item !== 'string') continue
+    const s = item.trim().slice(0, maxLen)
+    if (!s || seen.has(s.toLowerCase())) continue
+    seen.add(s.toLowerCase())
+    out.push(s)
+  }
+  return out
+}
+
+const SENIORITIES = new Set(['intern', 'new_grad', 'junior', 'mid', 'senior'])
+const STYLES = new Set(['conservative', 'balanced', 'assertive'])
+const PROVIDERS = new Set(['claude-code', 'manual', 'anthropic-api'])
+const ANSWER_KEYS = Object.keys(DEFAULTS.apply_answers)
+
+function sanitizeCareer(settings: Settings): void {
+  const jp = settings.job_prefs
+  jp.target_roles = cleanList(jp.target_roles)
+  jp.seniority = cleanList(jp.seniority).filter((s) => SENIORITIES.has(s)) as JobPrefs['seniority']
+  jp.experience_years_override = String(jp.experience_years_override ?? '').trim().slice(0, 10)
+  jp.locations = cleanList(jp.locations)
+  jp.include_keywords = cleanList(jp.include_keywords)
+  jp.exclude_keywords = cleanList(jp.exclude_keywords)
+  jp.excluded_companies = (Array.isArray(jp.excluded_companies) ? jp.excluded_companies : [])
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > 0)
+  jp.remote_ok = Boolean(jp.remote_ok)
+  jp.open_to_relocation = Boolean(jp.open_to_relocation)
+  jp.threshold = clampInt(jp.threshold, 0, 100, 55)
+  jp.freshness_days = clampInt(jp.freshness_days, 3, 365, 45)
+
+  const aa = settings.apply_answers as unknown as Json
+  for (const [k, v] of Object.entries(aa)) {
+    if (typeof v === 'string') aa[k] = v.trim().slice(0, 500)
+  }
+  settings.apply_answers.work_modes = cleanList(settings.apply_answers.work_modes)
+  settings.apply_answers.always_ask = cleanList(settings.apply_answers.always_ask).filter((k) =>
+    ANSWER_KEYS.includes(k),
+  )
+  settings.apply_answers.leave_salary_blank = Boolean(settings.apply_answers.leave_salary_blank)
+
+  // One source of truth: these answers are edited on the Application answers
+  // page but the Telegram / Google Form flows read them from the profile.
+  const a = settings.apply_answers
+  const p = settings.profile
+  if (a.notice_period) p.notice_period = a.notice_period
+  if (a.current_ctc) p.current_ctc = a.current_ctc
+  if (a.expected_ctc) p.expected_ctc = a.expected_ctc
+  if (a.relocation) p.willing_to_relocate = a.relocation
+  if (a.gender) p.gender = a.gender
+
+  const rp = settings.resume_prefs
+  rp.max_pages = clampInt(rp.max_pages, 1, 3, 2)
+  rp.projects_count = clampInt(rp.projects_count, 1, 6, 3)
+  rp.drift_threshold = clampInt(rp.drift_threshold, 10, 100, 60)
+  rp.style = (STYLES.has(rp.style) ? rp.style : 'balanced') as ResumePrefs['style']
+  rp.rewrite_summary = Boolean(rp.rewrite_summary)
+  rp.filename_pattern =
+    String(rp.filename_pattern || '').trim().replace(/[\\/:*?"<>|]/g, '') ||
+    DEFAULTS.resume_prefs.filename_pattern
+  if (!/\.pdf$/i.test(rp.filename_pattern)) rp.filename_pattern += '.pdf'
+
+  const ai = settings.ai
+  ai.provider = (PROVIDERS.has(ai.provider) ? ai.provider : 'claude-code') as AiConfig['provider']
+  ai.model = String(ai.model || '').trim().replace(/[^\w.\-[\]]/g, '').slice(0, 60)
+  ai.timeout_s = clampInt(ai.timeout_s, 30, 900, 180)
+  ai.daily_cap = clampInt(ai.daily_cap, 1, 1000, 40)
+  ai.fallback_manual = Boolean(ai.fallback_manual)
+  ai.claude_path = String(ai.claude_path || '').replace(/^"|"$/g, '').trim()
+  ai.api_key = String(ai.api_key || '').trim()
+
+  const au = settings.apply_automation
+  au.headless = Boolean(au.headless)
+  au.session_timeout_min = clampInt(au.session_timeout_min, 5, 120, 20)
+  au.daily_cap = clampInt(au.daily_cap, 1, 200, 20)
+  au.duplicate_days = clampInt(au.duplicate_days, 0, 365, 14)
+  au.typing_delay_ms = clampInt(au.typing_delay_ms, 0, 300, 40)
+  au.screenshot_retention_days = clampInt(au.screenshot_retention_days, 1, 3650, 90)
+  au.extra_domains = cleanList(au.extra_domains)
+    .map((d) => d.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
+    .filter((d) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d))
 }
 
 type Json = Record<string, unknown>
@@ -162,6 +322,7 @@ function sanitize(settings: Settings): Settings {
   if (settings.profile.resume_path) {
     settings.profile.resume_path = settings.profile.resume_path.replace(/^"|"$/g, '').trim()
   }
+  sanitizeCareer(settings)
   return settings
 }
 

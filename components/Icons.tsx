@@ -169,3 +169,39 @@ export const XIcon = (p: SVGProps<SVGSVGElement>) => (
     <line x1="17.5" y1="6.5" x2="6.5" y2="17.5" />
   </svg>
 )
+
+export const BriefcaseIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <rect x="3.5" y="7" width="17" height="13" rx="2.5" />
+    <path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7" />
+    <path d="M3.5 12.5h17" />
+  </svg>
+)
+
+export const KanbanIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <rect x="3.5" y="4" width="4.5" height="16" rx="1.5" />
+    <rect x="9.75" y="4" width="4.5" height="11" rx="1.5" />
+    <rect x="16" y="4" width="4.5" height="7" rx="1.5" />
+  </svg>
+)
+
+export const HeartbeatIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="M3 12h4l2-5 4 10 2-5h6" />
+  </svg>
+)
+
+export const SparkIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6" />
+  </svg>
+)
+
+export const TargetIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <circle cx="12" cy="12" r="4.5" />
+    <circle cx="12" cy="12" r="1" fill="currentColor" />
+  </svg>
+)

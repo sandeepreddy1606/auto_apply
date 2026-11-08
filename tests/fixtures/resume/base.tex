@@ -1,0 +1,323 @@
+%-------------------------------------------------------------
+% Resume in LaTeX  --  ATS-tuned for Microsoft Software Engineer
+% (Universal Print, Windows + Devices)  -- Job ID 200047364
+%
+% >>> BEFORE SENDING, FILL IN THE THREE ITEMS MARKED "TODO" <<<
+%   1. Graduation month/year in the Education section
+%   2. CGPA in the Education section (delete the line if you'd rather not list it)
+%   3. Read the note at the bottom of this file about C#/.NET
+%-------------------------------------------------------------
+
+\documentclass[a4paper,11pt]{article}
+\usepackage{latexsym}
+\usepackage{xcolor}
+\usepackage{ragged2e}
+\usepackage{float}
+\usepackage[empty]{fullpage}
+\usepackage{tabularx}
+\usepackage{titlesec}
+\usepackage{geometry}
+\usepackage{marvosym}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage{multicol}
+\usepackage{graphicx}
+% NOTE: [T1]{fontenc} is deliberately NOT loaded. Without lmodern or cm-super
+% installed, T1 falls back to Type 3 BITMAP fonts, which render unreliably in
+% browser PDF viewers (this is what made bullets disappear) and parse badly in
+% ATS text extraction. OT1 keeps proper Type 1 outline fonts.
+% If your LaTeX setup has lmodern, you may instead use:
+%   \usepackage[T1]{fontenc}\usepackage{lmodern}
+%\usepackage[T1]{fontenc}
+\setlength{\multicolsep}{0pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+\geometry{left=1.2cm, top=0.6cm, right=1.0cm, bottom=1.0cm}
+\usepackage[most]{tcolorbox}
+\tcbset{
+	frame code={}
+	center title,
+	left=0pt,
+	right=0pt,
+	top=0pt,
+	bottom=0pt,
+	colback=gray!20,
+	colframe=white,
+	width=\dimexpr\textwidth\relax,
+	enlarge left by=-2mm,
+	boxsep=4pt,
+	arc=0pt,outer arc=0pt,
+}
+
+\urlstyle{same}
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+\titleformat{\section}{
+  \vspace{-4pt}\normalfont\bfseries\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-7pt}]
+
+\newcommand{\resumeItem}[2]{
+  \item{
+    \textbf{#1}{\hspace{0.5mm}#2 \vspace{-0.5mm}}
+  }
+}
+
+\newcommand{\resumePOR}[3]{
+\vspace{0.5mm}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+        \textbf{#1}\hspace{0.3mm}#2 & \textit{\small{#3}}
+    \end{tabular*}
+    \vspace{-2mm}
+}
+
+\newcommand{\resumeSubheading}[4]{
+\vspace{0.5mm}\item
+    \begin{tabular*}{0.98\textwidth}[t]{l@{\extracolsep{\fill}}r}
+        \textbf{#1} & \textit{\footnotesize{#4}} \\
+        \textit{\footnotesize{#3}} &  \footnotesize{#2}\\
+    \end{tabular*}
+    \vspace{-2.4mm}
+}
+
+\newcommand{\resumeProject}[4]{
+\vspace{0.5mm}\item
+    \begin{tabular*}{0.98\textwidth}[t]{l@{\extracolsep{\fill}}r}
+        \textbf{#1} & \textit{\footnotesize{#3}} \\
+        \footnotesize{\textit{#2}} & \footnotesize{#4}
+    \end{tabular*}
+    \vspace{-2.4mm}
+}
+
+\newcommand{\resumeSubItem}[2]{\resumeItem{#1}{#2}\vspace{-4pt}}
+\renewcommand{\labelitemi}{$\bullet$}
+\renewcommand{\labelitemii}{$\bullet$}
+\renewcommand{\labelitemiii}{$\bullet$}
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=*,labelsep=0mm,label={}]}
+\newcommand{\resumeHeadingSkillStart}{\begin{itemize}[leftmargin=*,itemsep=1.7mm, rightmargin=2ex]}
+\newcommand{\resumeItemListStart}{\begin{justify}\begin{itemize}[label=$\bullet$, leftmargin=3.4ex, rightmargin=1ex, noitemsep, labelsep=1.4mm, itemsep=0.35mm, topsep=0.6mm]\small}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}\vspace{2mm}}
+\newcommand{\resumeHeadingSkillEnd}{\end{itemize}\vspace{-2mm}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\end{justify}\vspace{-2mm}}
+\newcommand{\cvsection}[1]{%
+\vspace{2mm}
+\begin{tcolorbox}
+    \textbf{\large #1}
+\end{tcolorbox}
+    \vspace{-4mm}
+}
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}%
+\newcolumntype{R}{>{\raggedleft\arraybackslash}X}%
+\newcolumntype{C}{>{\centering\arraybackslash}X}%
+
+\newcommand{\name}{ALEX MORGAN}
+\newcommand{\course}{Computer Science and Engineering}
+\newcommand{\roll}{00XYZ0000}
+\newcommand{\phone}{9000000000}
+\newcommand{\emaila}{alex.morgan@example.com}
+
+\begin{document}
+\fontfamily{cmr}\selectfont
+
+{
+\begin{tabularx}{\linewidth}{L r} \\
+  \textbf{\Large \name} & Ph: +91-\phone\\
+  {Software Engineer} & \href{mailto:\emaila}{\emaila} \\
+  Bachelor of Technology -- Computer Science and Engineering & \href{https://github.com/alexmorgan-dev}{github.com/alexmorgan-dev} \\
+  {Vellore Institute of Technology, Chennai} & \href{https://www.linkedin.com/in/alexmorgan-dev}{linkedin.com/in/alexmorgan-dev}
+\end{tabularx}
+}
+
+\vspace{-4mm}
+
+\section{\textbf{Professional Summary}}
+\justifying
+Software Engineer and Computer Science undergraduate specializing in backend service development, RESTful API design, and cloud-connected distributed systems. Experienced in building, testing, deploying, and operating production services on Azure, AWS, and OCI using object-oriented languages (Java, Python, JavaScript), Docker, and CI/CD pipelines with automated unit and integration testing. Practised in Git-based workflows, code reviews, service health monitoring, and Agile/Scrum delivery, with a focus on service reliability, correctness, and security.
+\vspace{-4mm}
+
+\section{\textbf{Technical Skills}}
+ \begin{itemize}[leftmargin=0.05in, label={}]
+    \small{\item{
+     \textbf{Languages}{: Java, Python, SQL, JavaScript; working knowledge of C\# and .NET fundamentals} \\
+     \textbf{Backend \& APIs}{: Spring Boot, FastAPI, Flask, Node.js, RESTful API Design, Microservices, Object-Oriented Design, System Design} \\
+     \textbf{Cloud \& DevOps}{: Microsoft Azure, AWS, Oracle Cloud Infrastructure (OCI), Docker, CI/CD Pipelines (GitHub Actions), Git, Firebase} \\
+     \textbf{Testing \& Reliability}{: Unit Testing, Integration Testing, Automated Testing, Service Health Monitoring, Debugging, Logging \& Observability, Code Reviews} \\
+     \textbf{Databases \& Practices}{: MySQL, MongoDB; Agile/Scrum, Distributed Systems, Cloud-Native Development, Secure Coding, Data Privacy \& Compliance} \\
+     \textbf{Libraries}{: React, Scikit-Learn, OpenCV, InsightFace, PyTorch, TensorFlow, NumPy, Pandas, LLM APIs}
+    }}
+ \end{itemize}
+ \vspace{-6mm}
+
+\section{\textbf{Education}}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {Vellore Institute of Technology, Chennai}{Chennai}
+      {Bachelor of Technology, Computer Science and Engineering}{2022 -- TODO: grad month/year}
+      \vspace{-1.0mm}
+      \resumeItemListStart
+        \item {CGPA: TODO -- add your CGPA here, or delete this bullet if you prefer not to list it.}
+        \item {Coursework: Data Structures \& Algorithms, Operating Systems, Computer Networks, DBMS, Object-Oriented Programming, Software Engineering, Cloud Computing.}
+      \resumeItemListEnd
+  \resumeSubHeadingListEnd
+\vspace{-6mm}
+
+\section{\textbf{Work Experience}}
+  \resumeSubHeadingListStart
+   \resumeSubheading
+      {Full Stack \& AI/ML Developer  \href{https://drive.google.com/file/d/1cod3NUy5tx_xzohB6sVvX950mTtFKck_/view?usp=sharing}{\textcolor{blue}{}}}{Chennai}
+      {BeetLoop Global Solutions Pvt Ltd}{Apr 2026 -- Present}
+      \vspace{-1.0mm}
+      \resumeItemListStart
+    \item {Design, implement, test, and maintain backend features and RESTful APIs for a production cloud service using Java and Spring Boot, writing accompanying unit tests and participating in peer code reviews to keep the codebase maintainable.}
+    \item {Containerise backend services with Docker and deploy them through CI/CD pipelines to cloud infrastructure, cutting release cycle time and reducing deployment-related defects by 50\%.}
+    \item {Monitor service health in live environments, investigate production incidents using application logs and metrics, and apply fixes that cut average request processing time.}
+    \item {Apply security, privacy, and access-control practices across service endpoints, including credential management, input validation, and role-based authorisation.}
+    \item {Work with product owners, front-end developers, and QA in an Agile/Scrum setting, contributing to design discussions, sprint planning, and technical documentation for new backend services.}
+    \resumeItemListEnd
+    \vspace{-3.0mm}
+    \resumeSubheading
+      {Full Stack \& AI/ML Developer Intern}{Chennai}
+      {BeetLoop Global Solutions Pvt Ltd}{Mar 2026 -- Apr 2026}
+      \vspace{-1.0mm}
+      \resumeItemListStart
+    \item {Built responsive React front-end components backed by Spring Boot REST endpoints, working within Git-based branching workflows and submitting changes through peer-reviewed pull requests.}
+    \item {Integrated third-party LLM APIs behind an internal service layer with input validation, error handling, and structured logging, automating data workflows and reducing manual processing effort by 35\%.}
+    \item {Wrote unit tests for new service methods and reproduced reported defects locally, contributing fixes that were promoted to the production release.}
+    \resumeItemListEnd
+    \vspace{-3.0mm}
+    \resumeSubheading
+      {Artificial Intelligence Intern  \href{https://drive.google.com/file/d/13npEkKqusuvFdVR9h3mEEhERQR-nGiaS/view?usp=sharing}{\textcolor{blue}{}}}{Bengaluru}
+      {Hirola InfoTech Solutions Pvt Ltd}{May -- June 2025}
+      \vspace{-1.0mm}
+      \resumeItemListStart
+    \item {Built modular, reusable Python data-processing pipelines with automated preprocessing and validation stages, achieving prediction accuracy above 98\% and cutting manual data preparation time by 35\%.}
+    \item {Delivered classification and clustering services (SVM, logistic regression, K-Means) as testable components with documented interfaces, cutting error rates by 50\% and doubling training throughput.}
+    \item {Developed interactive performance dashboards for pipeline monitoring and iterative tuning, improving system efficiency to 80\% and cutting compute cost by 20\%.}
+    \item {Partnered with product managers and data engineers to translate requirements into technical designs.}
+    \resumeItemListEnd
+
+    \vspace{-3.0mm}
+
+  \resumeSubHeadingListEnd
+\vspace{-6mm}
+
+\newpage
+
+\section*{\textbf{Projects}}
+\resumeSubHeadingListStart
+
+  \resumeProject
+    {Periodontitis Detection System --- ML Inference REST Service $\vert$ Individual $\vert$ \href{https://github.com/sashankbanda/tooth-strength-detector.git}{\textcolor{blue}{Link}}}
+    {Python, FastAPI, PyTorch (CNN), OpenCV, Docker, REST APIs}
+    {2026}
+    {}
+  \vspace{-1.0mm}
+  \resumeItemListStart
+    \justifying
+    \item Built a diagnostic service that assesses periodontal bone loss and tooth-strength indicators from dental radiographs, exposing model inference through a versioned REST API so client applications consume predictions without embedding model code.
+    \item Trained and evaluated a convolutional neural network using transfer learning, image preprocessing, and data augmentation, validating performance on a held-out test set with precision, recall, and F1 metrics. % TODO: insert dataset size and accuracy/F1
+    \item Implemented a preprocessing pipeline handling image normalisation, resizing, and format conversion, with request validation that rejects malformed or unsupported uploads before they reach the model. % TODO: verify against repo
+    \item Documented the service contract through auto-generated OpenAPI/Swagger schemas, allowing front-end and third-party clients to integrate without reading server code. % TODO: verify against repo
+    \item Containerised the model and API with Docker, adding health-check and version endpoints plus automated unit tests across the preprocessing and inference paths to catch regressions before deployment.
+  \resumeItemListEnd
+  \vspace{-4mm}
+
+  \resumeProject
+    {AI Course Builder --- Cloud-Connected REST Service $\vert$ Individual $\vert$ \href{https://github.com/alexmorgan-dev/ai_course_builder.git}{\textcolor{blue}{Link}}}
+    {FastAPI, MongoDB, React, GitHub Actions, Docker, REST APIs}
+    {2026}
+    {}
+  \vspace{-1.0mm}
+  \resumeItemListStart
+    \justifying
+    \item Designed and deployed a cloud-connected, service-based application exposing versioned RESTful APIs via FastAPI with MongoDB persistence and a React client, reducing course authoring from hours to seconds.
+    \item Implemented a multi-stage backend pipeline that calls external third-party APIs in sequence, with retry handling, response caching, and fallback responses so the service stayed available when an upstream dependency failed.
+    \item Integrated the YouTube Data API to retrieve and summarise video content per subtopic, then generating quizzes and reading lists from the summarised text.
+    \item Modelled course, module, and quiz entities in MongoDB with indexed queries and pagination, keeping response times stable as generated content volume grew.
+    \item Established CI/CD pipelines using GitHub Actions for automated builds, unit and integration testing, and deployment, reducing release cycle time by 40\% and improving service reliability.
+  \resumeItemListEnd
+  \vspace{-4mm}
+
+  \resumeProject
+    {Toxic Comment Classification Service $\vert$ Individual $\vert$ \href{https://github.com/alexmorgan-dev/toxic_message_classifier.git}{\textcolor{blue}{Link}}}
+    {Python, Flask, REST APIs, BERT, Instagram Graph API}
+    {2025}
+    {}
+  \vspace{-1.0mm}
+  \resumeItemListStart
+    \justifying
+    \item Exposed a Flask REST API service handling 500+ classification requests per second, with request validation, structured error responses, and automated alerting workflows for third-party ingestion.
+    \item Fine-tuned a BERT transformer on 100,000+ preprocessed comments with class-imbalance mitigation, achieving a 0.92 macro-F1 score while tripling moderation throughput.
+    \item Built a preprocessing and augmentation pipeline over raw comment data, applying tokenisation, lemmatisation, and stop-word removal to lift minority-class recall.
+    \item Benchmarked inference latency and throughput under sustained load, tuning batch size and serving configuration to hold peak traffic without queue build-up.
+    \item Integrated with the Instagram Graph API for real-time ingestion, implementing authentication, rate-limit handling, and idempotent processing to avoid duplicate classification.
+  \resumeItemListEnd
+  \vspace{-4mm}
+
+  \resumeProject
+    {Face Detection System --- Modular Inference Engine $\vert$ Individual $\vert$ \href{https://github.com/alexmorgan-dev/face-detection.git}{\textcolor{blue}{Link}}}
+    {Python, InsightFace, OpenCV, scikit-learn}
+    {2025}
+    {}
+  \vspace{-1.0mm}
+  \resumeItemListStart
+    \justifying
+    \item Split the inference engine into separate enrollment, recognition, and batch-processing modules, reducing latency by 30\% and supporting real-time processing at 20 FPS.
+    \item Built a face recognition system over 5,000+ images using ArcFace-512 embeddings and cosine-similarity scoring, reaching 98\% accuracy.
+    \item Added real-time webcam capture support for live deployment, sustaining 20 FPS throughput on commodity hardware without dropping frames.
+    \item Built a Tkinter desktop interface for enrollment and verification, cutting the manual steps needed to run a test cycle.
+    \item Built an automated performance-analysis and regression-testing suite using scikit-learn metrics on the Labeled Faces in the Wild dataset, increasing testing throughput by 40\%.
+  \resumeItemListEnd
+
+\resumeSubHeadingListEnd
+\vspace{-10.5mm}
+
+\section{\textbf{Certifications}}
+\begin{itemize}[leftmargin=0.05in, label={}]
+  \small{
+    \item \textbf{Microsoft Certified: Azure AI Fundamentals} $\vert$ Microsoft $\vert$ \href{https://drive.google.com/file/d/1nypwSHY39ZktbLtbP8Ya_CYGmbsn2g8f/view?usp=sharing}{\textcolor{blue}{\textbf{Link}}}\\
+    \vspace{-6.5mm}
+    \item \textbf{Data Structures and Backend with Java} $\vert$ Coursera $\vert$ \href{https://drive.google.com/file/d/1SdvRk6PBO6VIt_6LQol-nZmYosUmmgoN/view?usp=sharing}{\textcolor{blue}{\textbf{Link}}}\\
+    \vspace{-6.5mm}
+    \item \textbf{Oracle Cloud Infrastructure 2025 Certified Data Science Professional} $\vert$ Oracle $\vert$ \href{https://drive.google.com/file/d/1Q2dAdKuW7bo9yOs4gq8soPfN4qDZOFGs/view?usp=sharing}{\textcolor{blue}{\textbf{Link}}}\\
+    \vspace{-6.5mm}
+    \item \textbf{Oracle Cloud Infrastructure 2025 Certified AI Foundations Associate} $\vert$ Oracle $\vert$ \href{https://drive.google.com/file/d/1cpQH-lYc7DmQg9UHdZ-7dcmciYPLHpXu/view?usp=sharing}{\textcolor{blue}{\textbf{Link}}}\\
+    \vspace{-6.5mm}
+    \item \textbf{Applied Data Science Lab} $\vert$ WorldQuant University $\vert$ \href{https://drive.google.com/file/d/1MDyoU-A8llBpFbDF--DE8k4OrI6ITokM/view?usp=sharing}{\textcolor{blue}{\textbf{Link}}}
+  }
+\end{itemize}
+
+\vspace{-8mm}
+
+\section{\textbf{Achievements}}
+ \begin{itemize}[leftmargin=0.05in, label={}]
+    \small{\item{
+     \textbf{Top 5\%}{ --- AUDEVDAY T20DSA Challenge, May 2025 (data structures and algorithms).} \\
+     \textbf{National Rank 1,323}{ --- Naukri Campus National Aptitude Test.}
+    }}
+ \end{itemize}
+ \vspace{-16pt}
+
+%-------------------------------------------------------------
+% IMPORTANT NOTE -- READ BEFORE APPLYING
+%
+% This JD names C#/.NET as a PREFERRED qualification. Your current
+% background does not include it, and nothing above claims otherwise:
+% the skills line says "working knowledge of C# and .NET fundamentals",
+% which you should only keep if that is actually true. If it is not,
+% DELETE that clause -- an interviewer will ask about it.
+%
+% The single highest-value thing you can do for this application is
+% build one small ASP.NET Core Web API project (CRUD + xUnit tests +
+% GitHub Actions build, deployed to Azure App Service). That would let
+% you add a genuine C#/.NET project and move you from "keyword gap" to
+% "meets preferred qualifications". It is a weekend of work and it
+% addresses the biggest single gap between this resume and this JD.
+%-------------------------------------------------------------
+
+\end{document}

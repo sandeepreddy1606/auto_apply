@@ -9,17 +9,26 @@
   "scripts": {
     "dev": "next dev --port 8787",
     "build": "next build",
-    "start": "next start --port ${PORT:-8787} --hostname ${AUTO_APPLY_HOST:-0.0.0.0}",
+    "start": "node scripts/start.mjs",
+    "auth:recover": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve.mjs scripts/auth-recover.ts",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
-    "test": "node --import ./scripts/ts-resolve.mjs --test \"tests/*.test.ts\"",
-    "migrate:pg": "node --import ./scripts/ts-resolve.mjs scripts/migrate-sqlite-to-pg.ts"
+    "test": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve.mjs --test \"tests/*.test.ts\"",
+    "migrate:pg": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve.mjs scripts/migrate-sqlite-to-pg.ts",
+    "test:integration": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve.mjs --test --test-concurrency=1 \"tests/integration/*.test.ts\"",
+    "worker": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve.mjs worker/index.ts"
   },
   "dependencies": {
+    "@codemirror/language": "^6.11.3",
+    "@codemirror/legacy-modes": "^6.5.1",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.6",
+    "codemirror": "^6.0.2",
     "next": "^16.3.0",
     "node-html-parser": "^7.0.1",
     "nodemailer": "^9.0.5",
     "pg": "^8.16.3",
+    "playwright": "^1.56.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "teleproto": "^1.228.5"
