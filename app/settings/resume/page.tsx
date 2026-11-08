@@ -174,7 +174,7 @@ function BasesTab({ bases, reload }: { bases: BaseWithMeta[] | null; reload: () 
         {cur && cur.history > 0 && <button className="btn sm" onClick={undo}>Undo last change ({cur.history})</button>}
         {cur && bases.length > 1 && <button className="btn sm danger" onClick={() => window.confirm(`Delete “${cur.name}”?`) && career.deleteBase(cur.id).then(() => { setSel(null); reload() })}>Delete</button>}
       </div>
-      <div className="studio" style={{ gridTemplateColumns: undefined }}>
+      <div className="studio two">
         <div className="pane" style={{ display: 'block' }}>
           <LatexEditor value={draft} onChange={setDraft} onSave={save} />
           <div className="row-actions">

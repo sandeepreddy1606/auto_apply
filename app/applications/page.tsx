@@ -158,7 +158,7 @@ export default function ApplicationsPage() {
     <>
       <PageHeader
         large
-        title="Jobs"
+        title="Telegram inbox"
         sub="Posts from Telegram & pasted messages — apply in one tap"
         actions={
           <button

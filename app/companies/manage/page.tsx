@@ -47,7 +47,7 @@ export default function CompaniesManagePage() {
   const [scanning, setScanning] = useState<Set<number>>(new Set())
   const [scanningAll, setScanningAll] = useState(false)
   const [cfg, setCfg] = useState<CompaniesConfig | null>(null)
-  const [profileHints, setProfileHints] = useState({ skills: '', role: '' })
+  const [prefsHint, setPrefsHint] = useState<{ roles: string[]; locations: string[] }>({ roles: [], locations: [] })
   const [cfgSaving, setCfgSaving] = useState(false)
   const toast = useToast()
 
@@ -73,9 +73,9 @@ export default function CompaniesManagePage() {
           scan_interval_minutes: s.companies?.scan_interval_minutes || 180,
           auto_scan: s.companies?.auto_scan !== false,
         })
-        setProfileHints({
-          skills: s.profile?.skills || '',
-          role: s.profile?.current_role || '',
+        setPrefsHint({
+          roles: s.job_prefs?.target_roles || [],
+          locations: s.job_prefs?.locations || [],
         })
       })
       .catch(() =>
@@ -175,12 +175,6 @@ export default function CompaniesManagePage() {
     }
   }
 
-  const noKeywords =
-    cfg !== null &&
-    !cfg.match_keywords.trim() &&
-    !profileHints.skills.trim() &&
-    !profileHints.role.trim()
-
   return (
     <>
       <PageHeader
@@ -201,8 +195,8 @@ export default function CompaniesManagePage() {
             <BuildingIcon style={{ width: 18, height: 18 }} /> Add a company
           </h3>
           <p className="muted" style={{ marginBottom: 14, fontSize: 13 }}>
-            Paste a careers page URL. Job-board links (Greenhouse, Lever, Workable,
-            Ashby…) work best.
+            Paste a careers page URL. Job boards (Greenhouse, Lever, Workday, Ashby…) and
+            Amazon, Google and Microsoft careers work best.
           </p>
           <form onSubmit={addCompany} className="grid-2" style={{ alignItems: 'end' }}>
             <label className="field">
@@ -347,42 +341,30 @@ export default function CompaniesManagePage() {
             <ListIcon style={{ width: 18, height: 18 }} /> Matching & scanning
           </h3>
           <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
-            Jobs are matched against your profile skills
-            {profileHints.role ? (
+            Every job is scored against your <strong>Job preferences</strong> (target roles,
+            locations, seniority) and the skills on your resume. Amazon, Google and Microsoft are
+            searched with your target roles and locations.
+          </p>
+          <p className={prefsHint.roles.length ? 'muted' : 'warn-text'} style={{ fontSize: 13, marginBottom: 12 }}>
+            {prefsHint.roles.length ? (
               <>
-                {' '}
-                and role (<strong>{profileHints.role}</strong>)
+                Roles: <strong>{prefsHint.roles.join(', ')}</strong>
+                {prefsHint.locations.length ? (
+                  <>
+                    {' '}· Locations: <strong>{prefsHint.locations.join(', ')}</strong>
+                  </>
+                ) : null}
+                {' '}·{' '}
               </>
             ) : (
-              ''
+              <>No target roles set, so matching uses the job titles on your resume. </>
             )}
-            , with a seniority check against your experience. Add extra keywords to widen
-            or steer the match.
+            <a onClick={() => navigate('/settings/preferences')} style={{ cursor: 'pointer' }}>
+              {prefsHint.roles.length ? 'Change' : 'Set your roles & locations'}
+            </a>
           </p>
-          {noKeywords && (
-            <p className="warn-text" style={{ marginBottom: 12 }}>
-              No skills, role or keywords set — nothing will match.{' '}
-              <a
-                onClick={() => navigate('/settings/profile')}
-                style={{ cursor: 'pointer' }}
-              >
-                Fill your profile
-              </a>{' '}
-              or add keywords below.
-            </p>
-          )}
           {cfg && (
             <div className="stack">
-              <label className="field">
-                <span className="lbl">Extra match keywords (comma separated)</span>
-                <input
-                  placeholder="e.g. react, node, fullstack"
-                  value={cfg.match_keywords}
-                  onChange={(e) =>
-                    setCfg((c) => (c ? { ...c, match_keywords: e.target.value } : c))
-                  }
-                />
-              </label>
               <div className="grid-2">
                 <label className="field">
                   <span className="lbl">Auto-scan schedule</span>

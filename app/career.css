@@ -64,7 +64,7 @@
 .pill.purple { color: var(--purple); border-color: rgba(191,90,242,0.3); }
 
 .kw { display: flex; flex-wrap: wrap; gap: 6px; }
-.kw span { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--stroke-2); }
+.kw span, .kw button.chip-sugg { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--stroke-2); }
 .kw .have { color: var(--green); border-color: rgba(48,209,88,0.35); }
 .kw .miss { color: var(--dim); border-style: dashed; }
 
@@ -261,3 +261,13 @@ input[type="checkbox"], input[type="radio"] {
 .j-title.as-link:hover { text-decoration: underline; }
 .j-ext { color: var(--blue); text-decoration: none; }
 .j-ext:hover { text-decoration: underline; }
+
+/* Two-pane studio (base resume: editor + preview), no sidebar column. */
+@media (min-width: 1024px) {
+  .studio.two { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+}
+/* Tab rows scroll sideways on phones instead of wrapping onto two lines. */
+.tabs.seg.multi { flex-wrap: nowrap; }
+/* Suggestion chips are real buttons (keyboard + screen readers), styled like the tags. */
+.kw button.chip-sugg { font: inherit; font-size: 12px; cursor: pointer; background: none; color: inherit; }
+.kw button.chip-sugg:hover, .kw button.chip-sugg:focus-visible { color: var(--text); border-color: var(--stroke-2); outline: none; }

@@ -75,7 +75,9 @@ export default function ResumeStudio({ d, reload }: { d: ApplyDetail; reload: ()
       if (!nv.compile_log?.ok) setTab('report')
       reload()
     } catch (e) {
-      toast((e as Error).message, 'error')
+      // The automatic first compile stays quiet: if the compiler is missing,
+      // the page already shows "Install pdfLaTeX…" next to the button.
+      if (announce) toast((e as Error).message, 'error')
     } finally {
       setBusy(null)
     }

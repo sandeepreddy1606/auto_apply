@@ -135,9 +135,9 @@ export function ChipInput({
       {sugg.length > 0 && (
         <div className="kw" style={{ marginTop: 8 }}>
           {sugg.slice(0, 12).map((s) => (
-            <span key={s} className="miss" style={{ cursor: 'pointer' }} onClick={() => add(s)}>
+            <button type="button" key={s} className="miss chip-sugg" onClick={() => add(s)} aria-label={`Add ${s}`}>
               + {s}
-            </span>
+            </button>
           ))}
         </div>
       )}

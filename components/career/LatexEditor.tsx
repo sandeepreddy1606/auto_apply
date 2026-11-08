@@ -30,12 +30,26 @@ export default function LatexEditor({ value, onChange, onSave, errorLines = [], 
   useEffect(() => {
     let destroyed = false
     ;(async () => {
-      const [{ basicSetup }, viewMod, stateMod, lang, legacy] = await Promise.all([
+      const [{ basicSetup }, viewMod, stateMod, lang, legacy, hl] = await Promise.all([
         import('codemirror'),
         import('@codemirror/view'),
         import('@codemirror/state'),
         import('@codemirror/language'),
         import('@codemirror/legacy-modes/mode/stex'),
+        import('@lezer/highlight'),
+      ])
+      // basicSetup's default colours are for light backgrounds (dark blue on
+      // black is unreadable) — use a palette made for the dark editor.
+      const { tags: t } = hl
+      const darkHighlight = lang.HighlightStyle.define([
+        { tag: t.comment, color: '#7d8590', fontStyle: 'italic' },
+        { tag: [t.tagName, t.keyword], color: '#ff7b72' },
+        { tag: [t.atom, t.bracket], color: '#e6edf3' },
+        { tag: [t.string, t.special(t.string)], color: '#a5d6ff' },
+        { tag: [t.variableName, t.typeName], color: '#d2a8ff' },
+        { tag: [t.number, t.literal], color: '#79c0ff' },
+        { tag: t.meta, color: '#ffa657' },
+        { tag: t.invalid, color: '#ff453a' },
       ])
       if (destroyed || !host.current) return
       const { EditorView: EV, Decoration, keymap } = viewMod
@@ -65,6 +79,7 @@ export default function LatexEditor({ value, onChange, onSave, errorLines = [], 
           doc: value,
           extensions: [
             basicSetup,
+            lang.syntaxHighlighting(darkHighlight),
             lang.StreamLanguage.define(legacy.stex),
             EV.lineWrapping,
             errField,

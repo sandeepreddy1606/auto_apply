@@ -17,6 +17,8 @@ export async function register(): Promise<void> {
   const g = globalThis as GlobalFlag
   if (g[STARTED]) return
   g[STARTED] = true
+  // Page audits and other throwaway servers: no Telegram, scans or worker.
+  if (process.env.AUTO_APPLY_NO_BACKGROUND === '1') return
 
   const [{ manager }, service, db, scanner, settingsStore] = await Promise.all([
     import('@/lib/server/telegram'),

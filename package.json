@@ -23,6 +23,7 @@
     "@codemirror/legacy-modes": "^6.5.1",
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.38.6",
+    "@lezer/highlight": "1.2.5",
     "codemirror": "^6.0.2",
     "next": "^16.3.0",
     "node-html-parser": "^7.0.1",
