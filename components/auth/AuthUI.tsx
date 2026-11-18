@@ -4,6 +4,7 @@
 import Link from 'next/link'
 import { useId, useState } from 'react'
 import type { ReactNode } from 'react'
+import { BoltIcon } from '@/components/Icons'
 
 export function AuthLayout({ children }: { children: ReactNode }) {
   return (
@@ -11,7 +12,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
       <section className="auth-hero" aria-hidden="false">
         <div className="auth-hero-inner">
           <div className="auth-brand">
-            <span className="auth-mark">⚡</span>
+            <span className="auth-mark"><BoltIcon fill="currentColor" strokeWidth={0} style={{ width: 17, height: 17 }} /></span>
             <span>Auto Apply</span>
           </div>
           <h2>Your job search, on autopilot — with you in control.</h2>
@@ -25,7 +26,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
       </section>
       <main className="auth-main">
         <div className="auth-brand auth-brand-mobile">
-          <span className="auth-mark">⚡</span>
+          <span className="auth-mark"><BoltIcon fill="currentColor" strokeWidth={0} style={{ width: 17, height: 17 }} /></span>
           <span>Auto Apply</span>
         </div>
         <div className="auth-panel">{children}</div>

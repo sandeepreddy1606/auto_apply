@@ -12,6 +12,7 @@ export const DB_PATH = path.join(DATA_DIR, 'auto_apply.db')
 export const SETTINGS_PATH = path.join(DATA_DIR, 'settings.json')
 export const AUTH_PATH = path.join(DATA_DIR, 'auth.json')
 export const RESUMES_DIR = path.join(DATA_DIR, 'resumes')
+export const CLAUDE_APPS_PATH = path.join(DATA_DIR, 'claude_applications.json')
 // The previous Python build (Telethon) wrote a SQLite session database at
 // `telegram.session`; teleproto persists a StringSession, so this is a plain
 // text file instead. The two are not interchangeable — see README.

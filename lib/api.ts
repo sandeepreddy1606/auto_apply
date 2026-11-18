@@ -12,12 +12,14 @@ import type {
   CompanyJobsSummary,
   EmailPreview,
   FormAnswers,
+  FormFileChoice,
   FormLoadResult,
   ResumeMeta,
   ScanResult,
   Settings,
   Stats,
   TelegramStatus,
+  ChatSync,
   WatchedChat,
 } from '@/lib/types'
 
@@ -224,7 +226,10 @@ export const api = {
   deleteCompany: (id: number) =>
     request<{ ok: boolean }>(`/api/companies/${id}`, { method: 'DELETE' }),
   scanCompany: (id: number) =>
-    request<{ company: Company; result: ScanResult }>(`/api/companies/${id}/scan`, post()),
+    request<{ queued: boolean; task_id: number; company: Company }>(`/api/companies/${id}/scan`, post()),
+  updateCompany: (id: number, patch: { name?: string; career_url?: string; priority?: string; paused?: boolean }) =>
+    request<Company>(`/api/companies/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  addJobByLink: (url: string) => request<{ job_id: number; existing: boolean }>('/api/jobs/add', post({ url })),
   scanAllCompanies: () =>
     request<{ started: number }>('/api/companies/scan_all', post()),
 
@@ -239,15 +244,67 @@ export const api = {
     request<{ updated: number }>('/api/company_jobs/mark_seen', post()),
   companyJobsSummary: () => request<CompanyJobsSummary>('/api/company_jobs/summary'),
 
-  tgStatus: () => request<TelegramStatus>('/api/telegram/status'),
+  tgStatus: () => request<TelegramStatus & { syncs?: Record<string, ChatSync | null> }>('/api/telegram/status'),
   tgConnect: () => request<TelegramStatus>('/api/telegram/connect', post()),
   tgCode: (code: string) => request<TelegramStatus>('/api/telegram/code', post({ code })),
   tgPassword: (password: string) =>
     request<TelegramStatus>('/api/telegram/password', post({ password })),
-  tgChats: () => request<WatchedChat[]>('/api/telegram/chats'),
+  tgChats: (q = '') => request<WatchedChat[]>(`/api/telegram/chats${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  tgAddGroup: (chat: WatchedChat, days: number) =>
+    request<{ status: TelegramStatus; syncs: Record<string, ChatSync | null>; fetched: { found: number; created: number }; error: string | null }>(
+      '/api/telegram/groups',
+      post({ ...chat, days }),
+    ),
+  tgRemoveGroup: (id: string) =>
+    request<{ status: TelegramStatus; syncs: Record<string, ChatSync | null> }>(`/api/telegram/groups?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  tgFetch: (id?: string, days?: number) =>
+    request<{ created: number; found: number; syncs: Record<string, ChatSync | null> }>('/api/telegram/fetch', post({ id, days })),
   tgWatch: (chats: WatchedChat[]) =>
     request<TelegramStatus>('/api/telegram/watch', post({ chats })),
   tgDisconnect: () => request<TelegramStatus>('/api/telegram/disconnect', post()),
+  googleSignIn: () => request<{ task_id: number }>('/api/browser/google-signin', post()),
+  googleSignInState: () => request<GoogleSignInStatus>('/api/browser/google-signin'),
+  showFormWindow: (id: number) => request<{ task_id: number }>(`/api/applications/${id}/form-window`, post()),
+  markApplied: (id: number) => request<Application>(`/api/applications/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'applied' }) }),
+  aiFill: (id: number, body: { answers?: FormAnswers; redo?: boolean }) =>
+    request<AiFillState>(`/api/applications/${id}/ai-fill`, { method: 'POST', body: JSON.stringify(body) }),
+  aiFillState: (id: number) => request<AiFillState>(`/api/applications/${id}/ai-fill`),
+  formFiles: (id: number) => request<FormFilesView>(`/api/applications/${id}/files`),
+  chooseFormFile: (id: number, entry: string, choice: FormFileChoice | null) =>
+    request<FormFilesView>(`/api/applications/${id}/files`, { method: 'PUT', body: JSON.stringify({ entry, choice }) }),
+  uploadFormFile: async (id: number, file: File, entry?: string) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    if (entry) fd.append('entry', entry)
+    const path = `/api/applications/${id}/files`
+    const res = await fetch(path, { method: 'POST', credentials: 'same-origin', body: fd })
+    signalUnauthorized(path, res.status)
+    if (!res.ok) throw await errorFrom(res)
+    return res.json() as Promise<FormFilesView>
+  },
+  deleteFormFile: (id: number, name: string) =>
+    request<FormFilesView>(`/api/applications/${id}/files?name=${encodeURIComponent(name)}`, { method: 'DELETE' }),
+}
+
+/** "Fill with AI" progress on a post. */
+export type AiFillState = { state: 'idle' | 'running' | 'done' | 'failed'; at: string | null; message?: string; filled?: number; missing?: number }
+
+/** A post's Google Form upload questions and the files available for them. */
+export type FormFilesView = {
+  questions: { key: string; title: string; required: boolean; name: string | null; how: 'chosen' | 'role resume' | 'none' }[]
+  choices: Record<string, FormFileChoice>
+  resumes: { id: string; name: string }[]
+  uploaded: { name: string; size: number }[]
 }
 
 export type { FormAnswers }
+
+export type GoogleSignInStatus = {
+  state: 'never' | 'open' | 'done' | 'signed_in' | 'not_signed_in' | 'timed_out' | 'busy' | 'failed'
+  at: string | null
+  message?: string
+  /** Checked in the browser profile right now; null while the sign-in window is open. */
+  signed_in: boolean | null
+  browser: 'chromium' | 'chrome'
+  chrome_available: boolean
+}

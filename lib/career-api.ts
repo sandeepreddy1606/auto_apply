@@ -24,13 +24,30 @@ export interface Gate {
   fix: string | null
 }
 
+export interface JobFacets {
+  companies: { id: number; name: string; n: number }[]
+  cities: { value: string; n: number }[]
+  countries: { value: string; n: number }[]
+  workModes: { value: string; n: number }[]
+  types: { value: string; n: number }[]
+  seniority: { value: string; n: number }[]
+  education: { value: string; n: number }[]
+  skills: { value: string; n: number }[]
+  maxYears: { value: number; n: number }[]
+  postedDays: { value: number; n: number }[]
+}
+
 export interface ApplyDetail {
   session: ApplySession
+  /** Set when this run applies a Telegram post (then job is null). */
+  post?: { id: number; job_title: string | null; company: string | null; channel: string | null; apply_url: string | null } | null
   job: JobDetail | null
   versions: Omit<ResumeVersion, 'latex'>[]
   events: SessionEvent[]
   artifacts: SessionArtifact[]
   gates: Record<'generate' | 'lock' | 'fill' | 'submit', Gate>
+  /** "Use this resume" check for each version (by id). */
+  lock_gates?: Record<number, Gate>
   reuse: { id: number; job_title: string; company_name: string; similarity: number }[]
 }
 
@@ -87,8 +104,9 @@ export function streamSession(sid: number, after: number, onEvent: (e: SessionEv
 
 export const career = {
   // jobs
-  jobs: (p: { view?: string; q?: string; company?: number | null; min_score?: number; sort?: string; limit?: number; offset?: number } = {}) =>
+  jobs: (p: { view?: string; q?: string; company?: number | null; min_score?: number; sort?: string; limit?: number; offset?: number } & Record<string, unknown> = {}) =>
     request<{ items: JobListItem[]; total: number }>(`/api/jobs${qs(p)}`),
+  jobFacets: (p: Record<string, unknown> = {}) => request<JobFacets>(`/api/jobs/facets${qs(p)}`),
   job: (id: number) => request<JobDetail>(`/api/jobs/${id}`),
   setJobState: (id: number, state: string) => request<JobDetail>(`/api/jobs/${id}`, patch({ state })),
   refreshJob: (id: number) => request<{ task_id: number }>(`/api/jobs/${id}/refresh`, post()),
@@ -110,6 +128,7 @@ export const career = {
     request<{ task_id: number }>(`/api/apply/${sid}/answers`, patch({ values, remember, save_to_answers })),
   submit: (sid: number) => request<{ task_id: number }>(`/api/apply/${sid}/submit`, post()),
   confirm: (sid: number, submitted: boolean) => request<ApplySession>(`/api/apply/${sid}/confirm`, post({ submitted })),
+  selfSubmitted: (sid: number) => request<ApplySession>(`/api/apply/${sid}/confirm`, post({ submitted: true, self: true })),
   cancel: (sid: number) => request<ApplySession>(`/api/apply/${sid}/cancel`, post()),
   stage: (sid: number, stage: AppStage, notes?: string) => request<ApplySession>(`/api/apply/${sid}/stage`, patch({ stage, notes })),
   focus: (sid: number) => request(`/api/apply/${sid}/focus`, post()),

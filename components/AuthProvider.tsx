@@ -11,6 +11,7 @@ import type { ReactNode } from 'react'
 
 import type { AuthStatus, AuthUser, SignedIn } from '@/lib/api'
 import { UNAUTHORIZED_EVENT, api, extensionToken } from '@/lib/api'
+import { BoltIcon } from '@/components/Icons'
 
 export const AUTH_ROUTES = ['/login', '/signup', '/forgot']
 export const isAuthRoute = (p: string) => AUTH_ROUTES.some((r) => p === r || p.startsWith(`${r}/`))
@@ -134,7 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 function Splash({ offline }: { offline: boolean }) {
   return (
     <div className="auth-splash" aria-busy="true">
-      <div className="auth-mark">⚡</div>
+      <div className="auth-mark"><BoltIcon fill="currentColor" strokeWidth={0} style={{ width: 17, height: 17 }} /></div>
       <p className="muted">{offline ? 'Waiting for the server to start…' : 'Loading…'}</p>
     </div>
   )

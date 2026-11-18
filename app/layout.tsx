@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 
 import AppShell from '@/components/AppShell'
+import { THEME_BOOT } from '@/components/theme-boot'
 
 import './globals.css'
 import './career.css'
@@ -14,7 +15,10 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#000000',
+  themeColor: [
+    { media: '(prefers-color-scheme: dark)', color: '#0b0c0e' },
+    { media: '(prefers-color-scheme: light)', color: '#f5f5f3' },
+  ],
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
@@ -22,7 +26,10 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
+      </head>
       <body>
         <AppShell>{children}</AppShell>
       </body>

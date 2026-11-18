@@ -11,6 +11,7 @@ import { compilerAvailable } from '@/lib/resume/compile'
 import { HttpError } from '@/lib/server/http'
 import { sql } from '@/lib/server/db'
 import * as settingsStore from '@/lib/server/settings'
+import { listResumes, pathFor } from '@/lib/server/resumes'
 import { playwrightChromiumPath } from '@/lib/setup/tools'
 import { enqueue } from '@/lib/tasks/queue'
 import type { ApplySession } from '@/lib/types'
@@ -50,8 +51,14 @@ export async function startSession(jobId: number): Promise<{ session_id: number;
     warnings.push(`You applied to ${job.company_name} ${Math.round((Date.now() - Date.parse(recent[0].submitted_at)) / 86_400_000)} day(s) ago (${recent[0].job_title}).`)
   }
 
+  // A LaTeX base is needed for tailoring, but not to apply: a PDF from
+  // Settings → Resumes can be attached as-is.
   const base = await getDefaultBase()
-  if (!base) throw new HttpError(400, 'Add your base resume first (Settings → Resume).')
+  const hasPdf = listResumes().some((r) => /\.pdf$/i.test(r.stored) && Boolean(pathFor(r.id)))
+  if (!base && !hasPdf) {
+    throw new HttpError(400, 'Add a resume first: your LaTeX resume in Settings → Resume, or a PDF in Settings → Resumes.')
+  }
+  if (!base) warnings.push('No LaTeX resume yet, so tailoring is off. Attach one of your PDFs on the next screen.')
 
   // Refresh a stale or missing JD in the background so the snapshot is current.
   const stale = !job.jd_fetched_at || Date.now() - Date.parse(job.jd_fetched_at) > 7 * 86_400_000
@@ -60,7 +67,7 @@ export async function startSession(jobId: number): Promise<{ session_id: number;
   const applyUrl = job.apply_url || applyUrlFor(job.ats_type || 'custom', job.url)
   const sid = await createSession({ job_id: jobId, ats_type: job.ats_type, apply_url: applyUrl, jd_snapshot: job.description_text })
   // Version 1: an untouched copy of your base, so you can also apply with it as-is.
-  await createVersion({ base_id: base.id, job_id: jobId, session_id: sid, latex: base.latex, generated_by: 'base', status: 'draft' })
+  if (base) await createVersion({ base_id: base.id, job_id: jobId, session_id: sid, latex: base.latex, generated_by: 'base', status: 'draft' })
   return { session_id: sid, warnings, existing: false }
 }
 
@@ -84,6 +91,16 @@ export async function canLock(versionId: number): Promise<Gate> {
   }
   if (!compilerAvailable()) return block('Install pdfLaTeX to compile your resume — or use a PDF you uploaded.', '/settings/setup')
   if (!v.compile_log?.ok || !v.pdf_path) return block('Compile this version successfully first.')
+  // Checked here (when you pick the resume), not at the final Submit click.
+  const base = await getDefaultBase()
+  const issues = lintBase(v.latex, settingsStore.load().profile, base ? await getDismissed(base.id) : [])
+  const blocking = issues.filter((i) => i.severity === 'block').length
+  if (blocking) {
+    return block(
+      `This resume has ${blocking} issue${blocking > 1 ? 's' : ''} to fix first (or attach a PDF instead).`,
+      '/settings/resume?tab=issues',
+    )
+  }
   if (v.ats_report?.checks.some((c) => c.id === 'todo' && c.status === 'fail')) return block('The PDF still contains “TODO”.', '/settings/resume?tab=issues')
   return pass
 }
@@ -95,6 +112,7 @@ export async function canFill(s: ApplySession): Promise<Gate> {
   if (!(await workerAlive())) return block('The background worker isn’t running.', '/settings/setup')
   if (['filling', 'submitting'].includes(s.status)) return block('Already working on it…')
   if (['submitted', 'cancelled'].includes(s.status)) return block(`This application is ${s.status}.`)
+  if (s.status === 'unconfirmed') return block('Tell us first whether the last submit went through.')
   return pass
 }
 

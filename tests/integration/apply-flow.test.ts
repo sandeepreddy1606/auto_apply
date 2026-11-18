@@ -33,6 +33,9 @@ const executor = await import('../../lib/apply/executor.ts')
 const browser = await import('../../lib/apply/browser.ts')
 const learn = await import('../../lib/apply/learn.ts')
 const jobs = await import('../../lib/jobs/store.ts')
+const service = await import('../../lib/server/service.ts')
+const queue = await import('../../lib/tasks/queue.ts')
+const { HANDLERS } = await import('../../lib/tasks/handlers.ts')
 
 // ---------------------------------------------------------------- mock ATS
 
@@ -78,6 +81,58 @@ const INVALID_AGAIN = `<!doctype html><html><body><form method="post" action="/i
   <label for="a">Full name *</label><input id="a" name="a" required>
   <button type="submit">Submit application</button></form></body></html>`
 
+// Apply link that opens the form in a new tab.
+const POPUP_JOB = `<!doctype html><html><body><h1>Platform Engineer</h1><p>About the role…</p>
+  <a href="/popup-form" target="_blank">Apply now</a></body></html>`
+const POPUP_FORM = `<!doctype html><html><body><form method="post" action="/submit">
+  <label for="pf">Full name *</label><input id="pf" name="pf" required>
+  <label for="pe">Email *</label><input id="pe" name="pe" required>
+  <label for="pc">College name *</label><input id="pc" name="pc" required>
+  <button type="submit">Submit application</button></form></body></html>`
+// The company page embeds the real form in an iframe (like Greenhouse embeds).
+const EMBED_JOB = `<!doctype html><html><body><h1>Careers at Acme</h1>
+  <iframe src="/embedded-form" style="width:800px;height:700px;border:0"></iframe></body></html>`
+const EMBED_FORM = `<!doctype html><html><body><form method="post" action="/submit">
+  <label for="ef">First name *</label><input id="ef" name="ef" required>
+  <label for="el">Last name *</label><input id="el" name="el" required>
+  <label for="ee">Email *</label><input id="ee" name="ee" required>
+  <button type="submit">Submit application</button></form></body></html>`
+// Email-first sign-in (no password box yet), as Amazon/Microsoft/Google show.
+const EMAIL_FIRST = `<!doctype html><html><body><h1>Sign in</h1><form>
+  <label for="u">Email or mobile number</label><input id="u" name="u"><button>Continue</button></form></body></html>`
+// A styled upload: the real <input type=file> is display:none behind a button.
+const HIDDEN_UPLOAD = `<!doctype html><html><body><form method="post" action="/submit" enctype="multipart/form-data">
+  <label for="hn">Full name *</label><input id="hn" name="hn" required>
+  <div class="upload"><label for="hr">Upload your resume *</label><input id="hr" name="resume" type="file" style="display:none" required>
+  <button type="button" onclick="document.getElementById('hr').click()">Attach</button></div>
+  <fieldset><legend>Do you need visa sponsorship? *</legend>
+    <label><input type="radio" name="spons" value="na" required>Not applicable</label>
+    <label><input type="radio" name="spons" value="no">No</label>
+    <label><input type="radio" name="spons" value="yes">Yes</label>
+  </fieldset>
+  <button type="submit">Submit application</button></form></body></html>`
+// No Next and no Submit button: the flow must say so instead of claiming it's done.
+const NO_BUTTONS = `<!doctype html><html><body><form>
+  <label for="nb">Full name *</label><input id="nb" name="nb" required>
+  <label for="nb2">Email *</label><input id="nb2" name="nb2" required>
+  <div class="custom-widget">Click the arrow to go on</div></form></body></html>`
+
+// A Google Form the way its page is built: the questions in FB_PUBLIC_LOAD_DATA_,
+// answers accepted in the link (?entry.N=…), a "Submit" div button.
+const gformPage = (id: string, items: string) => `<!doctype html><html><body>
+<form id="f" action="/forms/d/e/${id}/formResponse" method="post">
+  <div role="listitem"><div role="heading">Full name</div><input name="entry.111"></div>
+  <div role="listitem"><div role="heading">Email</div><input name="entry.222"></div>
+  <div role="listitem"><div role="heading">Favourite colour</div><input name="entry.333"></div>
+</form>
+<div role="button" tabindex="0" onclick="document.getElementById('f').submit()"><span>Submit</span></div>
+<script>const p = new URLSearchParams(location.search); for (const [k, v] of p) { const el = document.querySelector('[name="' + k + '"]'); if (el) el.value = v }</script>
+<script>var FB_PUBLIC_LOAD_DATA_ = [null,["About the role",[${items}],null,null,null,null,null,null,"Referral form"],"/forms",""];</script>
+</body></html>`
+const GFORM_OK = gformPage('OK', '[1,"Full name",null,0,[[111,null,1]]],[2,"Email",null,0,[[222,null,1]]]')
+const GFORM_HARD = gformPage('HARD', '[1,"Full name",null,0,[[111,null,1]]],[3,"Favourite colour",null,0,[[333,null,1]]]')
+
+const hits: Record<string, number> = {}
 let server: http.Server
 let base = ''
 
@@ -91,6 +146,7 @@ before(async () => {
         res.end(html)
       }
       if (req.method === 'POST') received.push({ path: req.url || '', body })
+      hits[req.url || ''] = (hits[req.url || ''] ?? 0) + 1
       if (req.url === '/job/single') return send(SINGLE)
       if (req.url === '/job/multi') return send(STEP1)
       if (req.url === '/step2') return send(STEP2)
@@ -98,6 +154,17 @@ before(async () => {
       if (req.url === '/job/invalid') return send(INVALID)
       if (req.url === '/invalid-submit') return send(INVALID_AGAIN)
       if (req.url === '/submit') return send(THANKS)
+      if (req.url?.startsWith('/forms/d/e/OK/viewform')) return send(GFORM_OK)
+      if (req.url?.startsWith('/forms/d/e/HARD/viewform')) return send(GFORM_HARD)
+      if (/^\/forms\/d\/e\/\w+\/formResponse/.test(req.url || '')) return send('<!doctype html><html><body><p>Your response has been recorded.</p></body></html>')
+      if (req.url === '/job/popup') return send(POPUP_JOB)
+      if (req.url === '/popup-form') return send(POPUP_FORM)
+      if (req.url === '/job/embed') return send(EMBED_JOB)
+      if (req.url === '/embedded-form') return send(EMBED_FORM)
+      if (req.url === '/job/email-first') return send(EMAIL_FIRST)
+      if (req.url === '/job/gated') return send(LOGIN)
+      if (req.url === '/job/hidden-upload') return send(HIDDEN_UPLOAD)
+      if (req.url === '/job/no-buttons') return send(NO_BUTTONS)
       res.writeHead(404)
       res.end('not found')
     })
@@ -107,8 +174,8 @@ before(async () => {
 
   const s = settings.load()
   settings.save({
-    profile: { ...s.profile, full_name: 'Alex Morgan', email: 'alex@example.com', phone: '+91 9000000000', linkedin: 'https://linkedin.com/in/alex', current_location: 'Chennai, India' },
-    apply_answers: { ...s.apply_answers, authorized_india: 'Yes', notice_period: '30 days', relocation: 'Yes' },
+    profile: { ...s.profile, full_name: 'Alex Morgan', email: 'alex@example.com', phone: '+91 9000000000', linkedin: 'https://linkedin.com/in/alex', current_location: 'Chennai, India', college: 'VIT Chennai' },
+    apply_answers: { ...s.apply_answers, authorized_india: 'Yes', notice_period: '30 days', relocation: 'Yes', sponsorship_now: 'No' },
     ai: { ...s.ai, provider: 'manual' }, // no real AI calls in tests
     apply_automation: { ...s.apply_automation, headless: true, typing_delay_ms: 0 },
   })
@@ -217,6 +284,183 @@ describe('autofill end to end (mock ATS)', { skip: HAVE_BROWSER ? false : 'Playw
     s = (await sessions.getSession(sid))!
     assert.equal(s.status, 'unconfirmed')
     assert.match(s.error ?? '', /upload a resume/i)
+  })
+
+  test('"Apply" link that opens a new tab: the form there is filled and submitted', async () => {
+    const sid = await readySession('/job/popup')
+    await executor.runFill(sid)
+    let s = (await sessions.getSession(sid))!
+    assert.equal(s.status, 'reviewing', s.error ?? JSON.stringify(s.fill_plan?.answers))
+    assert.equal(answerFor(s.fill_plan, /College name/).a.value, 'VIT Chennai')
+    assert.match((await browser.pageFor(sid))!.url(), /\/popup-form$/)
+    await executor.runSubmit(sid)
+    s = (await sessions.getSession(sid))!
+    assert.equal(s.status, 'submitted', s.error ?? '')
+  })
+
+  test('form embedded in an iframe is found, filled and submitted', async () => {
+    const sid = await readySession('/job/embed')
+    await executor.runFill(sid)
+    let s = (await sessions.getSession(sid))!
+    assert.equal(s.status, 'reviewing', s.error ?? '')
+    const first = answerFor(s.fill_plan, /First name/)
+    assert.equal(first.a.value, 'Alex')
+    assert.equal(first.a.filled, true)
+    await executor.runSubmit(sid)
+    s = (await sessions.getSession(sid))!
+    assert.equal(s.status, 'submitted', s.error ?? '')
+    assert.ok(received.some((r) => r.path === '/submit' && r.body.includes('Morgan')))
+  })
+
+  test('email-first sign-in page is a sign-in wall: your email is not typed into it', async () => {
+    const sid = await readySession('/job/email-first')
+    await executor.runFill(sid)
+    const s = (await sessions.getSession(sid))!
+    assert.equal(s.status, 'blocked')
+    assert.match(s.error ?? '', /sign in/i)
+    const page = (await browser.pageFor(sid))!
+    assert.equal(await page.locator('#u').inputValue(), '')
+    await browser.closePage(sid)
+  })
+
+  test('"Continue filling" after signing in carries on in the same tab', async () => {
+    const sid = await readySession('/job/gated')
+    await executor.runFill(sid)
+    assert.equal((await sessions.getSession(sid))!.status, 'blocked')
+    const before = hits['/job/gated']
+    // You sign in inside the window and land on the form.
+    const page = (await browser.pageFor(sid))!
+    await page.goto(`${base}/job/single`)
+    await executor.runFill(sid)
+    const s = (await sessions.getSession(sid))!
+    assert.equal(s.status, 'needs_input', s.error ?? '')
+    assert.equal(hits['/job/gated'], before, 'the job page was not reloaded')
+    assert.equal(answerFor(s.fill_plan, /First Name/).a.value, 'Alex')
+    await browser.closePage(sid)
+  })
+
+  test('hidden file input gets the resume; "No" never ticks "Not applicable"', async () => {
+    const sid = await readySession('/job/hidden-upload')
+    await executor.runFill(sid)
+    const s = (await sessions.getSession(sid))!
+    assert.equal(s.status, 'reviewing', s.error ?? JSON.stringify(s.fill_plan?.answers))
+    assert.equal(answerFor(s.fill_plan, /Upload your resume/).a.filled, true)
+    const page = (await browser.pageFor(sid))!
+    assert.equal(await page.locator('input[name="spons"]:checked').getAttribute('value'), 'no')
+    await browser.closePage(sid)
+  })
+
+  test('a page with no Next or Submit button says so instead of claiming it is done', async () => {
+    const sid = await readySession('/job/no-buttons')
+    await executor.runFill(sid)
+    const s = (await sessions.getSession(sid))!
+    assert.equal(s.status, 'needs_input')
+    assert.equal(s.fill_plan!.final_step_reached, false)
+    assert.ok(s.fill_plan!.warnings.some((w) => /Next or Submit/.test(w)))
+    await browser.closePage(sid)
+  })
+
+  test('submit with the tab gone re-fills and stops for review: never submits unseen', async () => {
+    const sid = await readySession('/job/multi')
+    await executor.runFill(sid)
+    assert.equal((await sessions.getSession(sid))!.status, 'reviewing')
+    await browser.closePage(sid)
+    const posts = received.filter((r) => r.path === '/submit').length
+    await executor.runSubmit(sid)
+    const s = (await sessions.getSession(sid))!
+    assert.equal(s.status, 'reviewing')
+    assert.match(s.error ?? '', /filled again/)
+    assert.equal(received.filter((r) => r.path === '/submit').length, posts, 'nothing was submitted')
+    await browser.closePage(sid)
+  })
+
+  test('Telegram post with a careers-page link: one Apply fills and submits it, and the post shows applied', async () => {
+    // The worker is "alive" and a PDF resume exists (legacy profile path).
+    await queue.kvSet('worker.heartbeat', { pid: process.pid, id: 'test' })
+    const pdf = path.join(tmpDir, 'telegram-resume.pdf')
+    fs.writeFileSync(pdf, '%PDF-1.4\n%telegram test pdf\n')
+    const st = settings.load()
+    settings.save({ profile: { ...st.profile, resume_path: pdf }, automation: { ...st.automation, link_auto_submit: true } })
+
+    const [post] = await service.ingestText(
+      `Role: Platform Engineer\nCompany: Acme ${Date.now()}\nApply here (${base}/job/popup)`,
+      'telegram',
+      'Daily Jobs Group',
+      { chatId: '-100999', messageId: 5, postedAt: new Date().toISOString() },
+    )
+    assert.equal(post.method, 'link')
+    assert.equal(post.apply_url, `${base}/job/popup`)
+
+    const before = received.filter((r) => r.path === '/submit').length
+    const started = (await service.autoApply(post))!
+    assert.equal(started.status, 'applying')
+    assert.ok(started.session_id)
+    const s0 = (await sessions.getSession(started.session_id!))!
+    assert.equal(s0.post_id, post.id)
+    assert.equal(s0.job_id, 0, 'not a career-page job')
+
+    // Run the queued worker task exactly as the worker would.
+    const task = (await queue.claim('browser', 'test'))!
+    assert.equal(task.type, 'apply.fill')
+    await HANDLERS[task.type](task)
+    await queue.complete(task.id)
+
+    const done = (await db.getApplication(post.id))!
+    assert.equal(done.status, 'applied', `${done.status}: ${done.status_reason ?? ''} ${done.error ?? ''}`)
+    assert.equal(received.filter((r) => r.path === '/submit').length, before + 1, 'the form was submitted once')
+    const events = (await sessions.eventsSince(started.session_id!)).map((e) => e.type)
+    assert.ok(events.includes('submit.auto'))
+    // Kept out of the career-page applications.
+    assert.ok(!(await sessions.listSessions()).some((x) => x.id === started.session_id))
+  })
+
+  test('Telegram careers page with a question it can’t answer: stops for you instead of submitting', async () => {
+    await queue.kvSet('worker.heartbeat', { pid: process.pid, id: 'test' })
+    const [post] = await service.ingestText(`Role: QA Engineer\nCompany: Beta ${Date.now()}\nApply link: ${base}/job/single`, 'telegram', 'Daily Jobs Group', {})
+    const before = received.filter((r) => r.path === '/submit').length
+    const started = (await service.autoApply(post))!
+    const task = (await queue.claim('browser', 'test'))!
+    await HANDLERS[task.type](task)
+    await queue.complete(task.id)
+    const p = (await db.getApplication(post.id))!
+    assert.equal(p.status, 'review')
+    assert.match(p.status_reason ?? '', /need your answer/)
+    assert.equal(received.filter((r) => r.path === '/submit').length, before, 'nothing submitted')
+    assert.equal((await sessions.getSession(started.session_id!))!.status, 'needs_input')
+    await browser.closePage(started.session_id!)
+  })
+
+  test('Google Form that needs your account: opened signed in, pre-filled from the profile, submitted', async () => {
+    const { runGformInBrowser } = await import('../../lib/apply/gform-browser.ts')
+    const app = (await db.insertApplication({
+      source: 'telegram', channel: 'Daily Jobs Group', raw_text: `Role: Analyst ${Date.now()}`, text_hash: `gf-${Date.now()}`,
+      method: 'gform', form_url: `${base}/forms/d/e/OK/viewform`, job_title: 'Analyst', status: 'review',
+    }))!
+    const before = received.filter((r) => /formResponse/.test(r.path)).length
+    const r = await runGformInBrowser(app.id)
+    assert.equal(r.status, 'applied')
+    const done = (await db.getApplication(app.id))!
+    assert.equal(done.status, 'applied', done.status_reason ?? '')
+    assert.equal(done.form_schema?.signed_in, true, 'remembered as a signed-in form')
+    const posts = received.filter((x) => /formResponse/.test(x.path))
+    assert.equal(posts.length, before + 1)
+    const body = decodeURIComponent(posts.at(-1)!.body.replace(/\+/g, ' '))
+    assert.ok(body.includes('entry.111=Alex Morgan') && body.includes('entry.222=alex@example.com'), body)
+  })
+
+  test('Google Form with a required question it can’t answer: stops for you, nothing sent', async () => {
+    const { runGformInBrowser } = await import('../../lib/apply/gform-browser.ts')
+    const app = (await db.insertApplication({
+      source: 'telegram', channel: 'Daily Jobs Group', raw_text: `Role: Tester ${Date.now()}`, text_hash: `gf2-${Date.now()}`,
+      method: 'gform', form_url: `${base}/forms/d/e/HARD/viewform`, job_title: 'Tester', status: 'review',
+    }))!
+    const before = received.filter((x) => /formResponse/.test(x.path)).length
+    const r = await runGformInBrowser(app.id)
+    assert.equal(r.status, 'needs_input')
+    const p = (await db.getApplication(app.id))!
+    assert.equal(p.status, 'review')
+    assert.match(p.status_reason ?? '', /Favourite colour/)
+    assert.equal(received.filter((x) => /formResponse/.test(x.path)).length, before)
   })
 
   test('navigation outside the job site is blocked', async () => {

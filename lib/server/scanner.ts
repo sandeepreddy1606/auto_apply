@@ -486,6 +486,16 @@ async function scanCompanyInner(company: Company, settings: Settings): Promise<S
     ats_token: result.token,
   })
 
+  // Score once more through the shared path so every job also gets the
+  // details the Jobs filters use (experience, work mode, skills, city …).
+  try {
+    const { rescoreJobs } = await import('@/lib/jobs/store')
+    const ids = (await db.sql.all('SELECT id FROM company_jobs WHERE company_id = ? AND active = 1', [company.id])).map((r) => Number(r.id))
+    for (let i = 0; i < ids.length; i += 400) await rescoreJobs(ids.slice(i, i + 400))
+  } catch (e) {
+    console.warn(`[autoapply.scanner] Re-scoring ${company.name} failed:`, (e as Error).message)
+  }
+
   // Descriptions the list API didn't include are fetched by the worker.
   if (sync.needs_jd_ids.length) {
     const { enqueue } = await import('@/lib/tasks/queue')

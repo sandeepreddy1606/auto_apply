@@ -1,13 +1,49 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useNavigate } from '@/components/Navigation'
+import { BoltIcon, ClockIcon, PinIcon } from '@/components/Icons'
 import { useToast } from '@/components/Toast'
 import { career } from '@/lib/career-api'
-import type { JobDetail } from '@/lib/types'
+import type { JobDetail, JobRequirements } from '@/lib/types'
 
 import { Breakdown, ScorePill, StatusPill, timeAgo } from './ui'
+
+const EDU: Record<string, string> = { phd: 'PhD', masters: "Master's degree", bachelors: "Bachelor's degree", diploma: 'Diploma' }
+const cap = (s: string) => s[0].toUpperCase() + s.slice(1)
+
+/** What the description asks for, read from its text: one row per detail found. */
+function Requirements({ r }: { r: JobRequirements }) {
+  const rows: [string, string, string?][] = []
+  if (r.experience) {
+    const e = r.experience
+    rows.push(['Experience', e.text === 'entry level' ? 'Entry level / new grad' : e.max !== null ? `${e.min}–${e.max} years` : `${e.min}+ years`, e.text === 'entry level' ? undefined : `“${e.text}”`])
+  }
+  if (r.experience_preferred) rows.push(['Preferred', `${r.experience_preferred.min}+ years`, `“${r.experience_preferred.text}”`])
+  if (r.education?.level) {
+    rows.push(['Education', `${EDU[r.education.level]}${r.education.fields.length ? ` in ${r.education.fields.join(' / ')}` : ''}${r.education.equivalent ? ', or equivalent experience' : ''}`])
+  }
+  if (r.employment_type) rows.push(['Job type', cap(r.employment_type)])
+  if (r.work_mode) rows.push(['Work mode', r.work_mode === 'onsite' ? 'On-site' : cap(r.work_mode)])
+  if (r.salary) rows.push(['Pay', r.salary])
+  if (r.visa) rows.push(['Visa', r.visa === 'sponsors' ? 'Sponsorship available' : 'No visa sponsorship'])
+  if (r.notice) rows.push(['Joining', cap(r.notice)])
+  if (r.shift) rows.push(['Shift', cap(r.shift)])
+  if (r.travel) rows.push(['Travel', cap(r.travel)])
+  if (!rows.length) return null
+  return (
+    <div className="req-grid">
+      {rows.map(([k, v, q]) => (
+        <div key={k} className="req">
+          <span className="req-k">{k}</span>
+          <span className="req-v">{v}</span>
+          {q && <span className="req-q">{q}</span>}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 /** Job description, score breakdown, keywords and the Apply button. Used in the split pane and on /jobs/[id]. */
 export default function JobDetailView({ id, onChanged }: { id: number; onChanged?: () => void }) {
@@ -33,8 +69,14 @@ export default function JobDetailView({ id, onChanged }: { id: number; onChanged
   }, [id])
 
   // While the description is being fetched, check back.
+  // Stops after about a minute, so a description that can't be fetched doesn't poll forever.
+  const polls = useRef(0)
   useEffect(() => {
-    if (!job || job.has_description) return
+    polls.current = 0
+  }, [id])
+  useEffect(() => {
+    if (!job || job.has_description || polls.current >= 12) return
+    polls.current++
     const t = setTimeout(() => void load(), 5000)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -65,6 +107,7 @@ export default function JobDetailView({ id, onChanged }: { id: number; onChanged
   }
   const refresh = async () => {
     await career.refreshJob(job.id)
+    polls.current = 0
     toast('Fetching the description…', 'info')
     setJob({ ...job, has_description: false })
   }
@@ -73,20 +116,38 @@ export default function JobDetailView({ id, onChanged }: { id: number; onChanged
 
   return (
     <div className="card">
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <ScorePill score={job.match_score} breakdown={b} />
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+        <ScorePill score={job.match_score} breakdown={b} size="lg" />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h2 style={{ fontSize: 19, lineHeight: 1.25, letterSpacing: -0.3 }}>{job.title}</h2>
-          <div className="muted small" style={{ marginTop: 4 }}>
-            {job.company_name}
-            {job.location ? ` · ${job.location}` : ''}
-            {` · ${timeAgo(job.posted_at || job.first_seen_at)}`}
-            {job.ats_type && job.ats_type !== 'custom' ? ` · ${job.ats_type}` : ''}
+          <h2 className="jd-title">{job.title}</h2>
+          <div className="meta" style={{ marginTop: 6 }}>
+            <span className="strong">{job.company_name}</span>
+            {job.location && <span><PinIcon />{job.location}</span>}
+            <span><ClockIcon />{timeAgo(job.posted_at || job.first_seen_at)}</span>
+            {job.ats_type && job.ats_type !== 'custom' && <span>via {job.ats_type}</span>}
           </div>
         </div>
       </div>
 
       {b?.excluded && <div className="warn-box" style={{ marginTop: 12 }}>Filtered out: {b.excluded}. You can still apply.</div>}
+
+      {job.active === 0 && <div className="warn-box" style={{ marginTop: 12 }}>This posting is no longer listed on the company’s site — it may have closed.</div>}
+
+      {job.siblings && job.siblings.length > 0 && (
+        <div className="small" style={{ marginTop: 10, color: 'var(--dim)' }}>
+          Also posted in:{' '}
+          {job.siblings.slice(0, 12).map((s, i) => (
+            <span key={s.id}>
+              {i > 0 && ', '}
+              <a href={`/jobs/${s.id}`} onClick={(e) => { e.preventDefault(); navigate(`/jobs/${s.id}`) }}>{s.location || 'another location'}</a>
+            </span>
+          ))}
+          {job.siblings.length > 12 ? ` and ${job.siblings.length - 12} more` : ''}
+        </div>
+      )}
+
+      {job.requirements && <Requirements r={job.requirements} />}
+
       {b && <Breakdown b={b} />}
 
       {job.keywords && (job.keywords.required.length > 0 || job.keywords.preferred.length > 0) && (
@@ -110,7 +171,7 @@ export default function JobDetailView({ id, onChanged }: { id: number; onChanged
           </button>
         ) : (
           <button className="btn primary" disabled={busy} onClick={apply}>
-            {busy ? <span className="spin" /> : '⚡'} Apply
+            {busy ? <span className="spin" /> : <BoltIcon fill="currentColor" strokeWidth={0} />} Apply
           </button>
         )}
         {job.state !== 'shortlisted' ? (

@@ -71,10 +71,15 @@ export const DEFAULTS: Settings = {
     api_hash: '',
     phone: '',
     watched_chats: [],
+    history_days: 3,
   },
   automation: {
     auto_apply_email: false,
     auto_apply_gform: false,
+    auto_apply_link: false,
+    link_auto_submit: true,
+    gform_use_ai: true,
+    gform_tick_declarations: false,
   },
   companies: {
     match_keywords: '',
@@ -150,6 +155,7 @@ export const DEFAULTS: Settings = {
     typing_delay_ms: 40,
     screenshot_retention_days: 90,
     extra_domains: [],
+    browser: 'chromium',
   },
 }
 
@@ -244,6 +250,7 @@ function sanitizeCareer(settings: Settings): void {
   au.duplicate_days = clampInt(au.duplicate_days, 0, 365, 14)
   au.typing_delay_ms = clampInt(au.typing_delay_ms, 0, 300, 40)
   au.screenshot_retention_days = clampInt(au.screenshot_retention_days, 1, 3650, 90)
+  au.browser = au.browser === 'chrome' ? 'chrome' : 'chromium'
   au.extra_domains = cleanList(au.extra_domains)
     .map((d) => d.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
     .filter((d) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d))
@@ -268,7 +275,7 @@ function deepMerge(base: Json, override: Json | undefined): Json {
  * Write via a temp file + rename so a crash mid-write can never leave a
  * truncated/corrupt file (which would wipe all settings).
  */
-function writeAtomic(path: string, text: string): void {
+export function writeAtomic(path: string, text: string): void {
   const tmp = `${path}.tmp`
   const fd = fs.openSync(tmp, 'w')
   try {
@@ -326,6 +333,13 @@ function sanitize(settings: Settings): Settings {
   if (settings.profile.resume_path) {
     settings.profile.resume_path = settings.profile.resume_path.replace(/^"|"$/g, '').trim()
   }
+  const tg = settings.telegram
+  tg.history_days = clampInt(tg.history_days, 0, 30, 3)
+  const au2 = settings.automation
+  au2.auto_apply_link = Boolean(au2.auto_apply_link)
+  au2.link_auto_submit = au2.link_auto_submit !== false
+  au2.gform_use_ai = au2.gform_use_ai !== false
+  au2.gform_tick_declarations = Boolean(au2.gform_tick_declarations)
   sanitizeCareer(settings)
   return settings
 }

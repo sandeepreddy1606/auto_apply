@@ -40,7 +40,7 @@ if (IS_PG) {
   log(`Storage backend: SQLite (${DB_PATH})`)
 }
 
-const JSON_FIELDS = new Set(['extra', 'form_schema', 'form_answers'])
+const JSON_FIELDS = new Set(['extra', 'form_schema', 'form_answers', 'form_files'])
 
 const PK = IS_PG ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'
 const LIKE = IS_PG ? 'ILIKE' : 'LIKE'
@@ -423,12 +423,14 @@ export async function listCompanies(): Promise<Company[]> {
   const order = IS_PG ? 'lower(c.name)' : 'c.name COLLATE NOCASE'
   const sql = `
     SELECT c.*,
-        (SELECT COUNT(*) FROM company_jobs j
+        (SELECT COUNT(DISTINCT lower(j.title)) FROM company_jobs j
          WHERE j.company_id = c.id AND j.active = 1 AND j.state != 'dismissed') AS active_jobs,
-        (SELECT COUNT(*) FROM company_jobs j
+        (SELECT COUNT(DISTINCT lower(j.title)) FROM company_jobs j
          WHERE j.company_id = c.id AND j.active = 1 AND j.matched = 1 AND j.state != 'dismissed') AS matched_jobs,
-        (SELECT COUNT(*) FROM company_jobs j
-         WHERE j.company_id = c.id AND j.active = 1 AND j.matched = 1 AND j.state = 'new') AS new_jobs
+        (SELECT COUNT(DISTINCT lower(j.title)) FROM company_jobs j
+         WHERE j.company_id = c.id AND j.active = 1 AND j.matched = 1 AND j.state = 'new') AS new_jobs,
+        (SELECT COUNT(*) FROM apply_sessions s JOIN company_jobs j ON j.id = s.job_id
+         WHERE j.company_id = c.id AND s.status != 'cancelled') AS applications
     FROM companies c ORDER BY ${order}`
   // Postgres COUNT(*) comes back as a bigint string; normalize so the UI can do arithmetic.
   return (await all(sql)).map((r) => ({
@@ -436,7 +438,20 @@ export async function listCompanies(): Promise<Company[]> {
     active_jobs: toNum(r.active_jobs),
     matched_jobs: toNum(r.matched_jobs),
     new_jobs: toNum(r.new_jobs),
+    applications: toNum(r.applications),
+    paused: toNum(r.paused),
+    fail_count: toNum(r.fail_count),
   })) as Company[]
+}
+
+/** Applications (any status but cancelled) started for a company's jobs. */
+export async function companyApplicationCount(companyId: number): Promise<number> {
+  return toNum(
+    (await one(
+      "SELECT COUNT(*) AS n FROM apply_sessions s JOIN company_jobs j ON j.id = s.job_id WHERE j.company_id = ? AND s.status != 'cancelled'",
+      [companyId],
+    ))?.n,
+  )
 }
 
 export async function updateCompany(
@@ -629,6 +644,21 @@ export async function listCompanyJobs(opts: {
   })) as CompanyJob[]
 }
 
+/** One job added by hand (a link you found), outside any scan. Returns its id. */
+export async function insertCompanyJob(fields: { companyId: number; url: string; title: string; location: string | null; postedAt?: string | null }): Promise<number> {
+  const now = nowIso()
+  return insert(
+    'INSERT INTO company_jobs (company_id, url, title, location, matched, match_reason, first_seen_at, last_seen_at, active, state, posted_at) ' +
+      "VALUES (?, ?, ?, ?, 0, NULL, ?, ?, 1, 'new', ?)",
+    [fields.companyId, fields.url, fields.title.slice(0, 200), fields.location, now, now, fields.postedAt ?? null],
+  )
+}
+
+export async function findCompanyJobByUrl(url: string): Promise<{ id: number } | null> {
+  const r = await one('SELECT id FROM company_jobs WHERE url = ? ORDER BY id DESC LIMIT 1', [url])
+  return r ? { id: Number(r.id) } : null
+}
+
 export async function getCompanyJob(jobId: number): Promise<CompanyJob | null> {
   return (await one('SELECT * FROM company_jobs WHERE id = ?', [jobId])) as CompanyJob | null
 }
@@ -645,18 +675,21 @@ export async function markCompanyJobsSeen(): Promise<number> {
   return run("UPDATE company_jobs SET state = 'seen' WHERE state = 'new'")
 }
 
+/** One posting = one company + title; the same job listed in several cities counts once (as in the Jobs list). */
+const POSTING = "CAST(company_id AS TEXT) || '|' || lower(title)"
+
 export async function companyJobsSummary(): Promise<CompanyJobsSummary> {
   const newMatched = toNum(
     (
       await one(
-        "SELECT COUNT(*) AS n FROM company_jobs WHERE active = 1 AND matched = 1 AND state = 'new'",
+        `SELECT COUNT(DISTINCT ${POSTING}) AS n FROM company_jobs WHERE active = 1 AND matched = 1 AND state = 'new'`,
       )
     )?.n,
   )
   const totalMatched = toNum(
     (
       await one(
-        "SELECT COUNT(*) AS n FROM company_jobs WHERE active = 1 AND matched = 1 AND state != 'dismissed'",
+        `SELECT COUNT(DISTINCT ${POSTING}) AS n FROM company_jobs WHERE active = 1 AND matched = 1 AND state != 'dismissed'`,
       )
     )?.n,
   )

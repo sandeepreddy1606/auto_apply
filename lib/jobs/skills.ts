@@ -49,7 +49,10 @@ const DICT: Record<string, string[]> = {
   Redux: ['redux'],
   Tailwind: ['tailwind', 'tailwindcss'],
   // data / ML
-  'Machine Learning': ['machine learning', 'ml'],
+  'Machine Learning': [
+    'machine learning', 'machine-learning', 'ml', 'ai/ml', 'ml/ai', 'ml models', 'ml model', 'supervised learning', 'unsupervised learning',
+    'logistic regression', 'linear regression', 'random forest', 'random forests', 'svm', 'k-means', 'kmeans', 'clustering', 'classification models',
+  ],
   'Deep Learning': ['deep learning'],
   PyTorch: ['pytorch', 'torch'],
   TensorFlow: ['tensorflow', 'tf'],
@@ -87,6 +90,103 @@ const DICT: Record<string, string[]> = {
   Linux: ['linux', 'unix'],
   Kafka: ['kafka', 'apache kafka'],
   RabbitMQ: ['rabbitmq'],
+  // more languages
+  Dart: ['dart'],
+  'Objective-C': ['objective-c', 'objective c'],
+  MATLAB: ['matlab'],
+  Perl: ['perl'],
+  Haskell: ['haskell'],
+  Elixir: ['elixir'],
+  Solidity: ['solidity'],
+  Lua: ['lua'],
+  'Embedded C': ['embedded c', 'embedded systems', 'firmware', 'rtos'],
+  Verilog: ['verilog', 'systemverilog', 'vhdl', 'fpga'],
+  // mobile
+  Android: ['android', 'android sdk', 'jetpack compose'],
+  iOS: ['ios', 'swiftui', 'uikit', 'xcode'],
+  'React Native': ['react native', 'react-native'],
+  Flutter: ['flutter'],
+  // more frontend
+  Svelte: ['svelte', 'sveltekit'],
+  jQuery: ['jquery'],
+  'Sass/SCSS': ['sass', 'scss', 'less css'],
+  Bootstrap: ['bootstrap'],
+  'Material UI': ['material ui', 'material-ui', 'mui'],
+  Webpack: ['webpack', 'vite', 'rollup', 'babel'],
+  'Three.js': ['three.js', 'threejs', 'webgl'],
+  WebSockets: ['websocket', 'websockets', 'socket.io'],
+  Figma: ['figma'],
+  Accessibility: ['accessibility', 'wcag', 'a11y'],
+  // more backend / architecture
+  'Event-driven architecture': ['event-driven', 'event driven', 'event sourcing', 'cqrs'],
+  'Design Patterns': ['design patterns', 'design pattern', 'solid principles'],
+  Concurrency: ['concurrency', 'multithreading', 'multi-threading', 'multithreaded', 'parallel programming'],
+  'Computer Networking': ['tcp/ip', 'networking protocols', 'computer networks', 'http/2', 'dns'],
+  'Operating Systems': ['operating systems', 'operating system internals', 'os internals'],
+  Hibernate: ['hibernate', 'jpa'],
+  Laravel: ['laravel'],
+  'Ruby on Rails': ['ruby on rails', 'rails'],
+  Nginx: ['nginx', 'apache httpd', 'load balancer', 'load balancers'],
+  'API Design': ['api design', 'openapi', 'swagger'],
+  JWT: ['jwt', 'json web token', 'json web tokens'],
+  // data engineering / analytics
+  Snowflake: ['snowflake'],
+  BigQuery: ['bigquery', 'big query'],
+  Redshift: ['redshift', 'amazon redshift'],
+  Databricks: ['databricks', 'delta lake'],
+  dbt: ['dbt'],
+  Hadoop: ['hadoop', 'hdfs', 'mapreduce', 'hive', 'presto', 'trino'],
+  Flink: ['flink', 'apache flink', 'apache beam', 'beam', 'dataflow'],
+  ETL: ['etl', 'elt', 'data pipelines', 'data pipeline', 'data-processing pipelines', 'data processing pipelines', 'data ingestion'],
+  'Data Warehousing': ['data warehouse', 'data warehousing', 'data lake', 'data modeling', 'data modelling', 'dimensional modeling'],
+  Tableau: ['tableau'],
+  'Power BI': ['power bi', 'powerbi'],
+  QuickSight: ['quicksight'],
+  Looker: ['looker', 'looker studio'],
+  Excel: ['excel', 'microsoft excel', 'ms excel', 'advanced excel', 'vba'],
+  'Data Analysis': ['data analysis', 'data analytics', 'analytics'],
+  Statistics: ['statistics', 'statistical analysis', 'statistical modeling', 'hypothesis testing'],
+  'A/B Testing': ['a/b testing', 'a/b tests', 'ab testing', 'experimentation'],
+  // AI / ML
+  'Reinforcement Learning': ['reinforcement learning', 'rlhf'],
+  RAG: ['rag', 'retrieval-augmented generation', 'retrieval augmented generation'],
+  'Prompt Engineering': ['prompt engineering', 'prompt design'],
+  LangChain: ['langchain', 'llamaindex', 'llama index'],
+  'Vector Databases': ['vector database', 'vector databases', 'vector db', 'pinecone', 'faiss', 'weaviate', 'milvus', 'chroma', 'pgvector'],
+  MLOps: ['mlops', 'ml ops', 'model deployment', 'model serving', 'kubeflow', 'mlflow'],
+  SageMaker: ['sagemaker', 'amazon sagemaker', 'bedrock', 'amazon bedrock'],
+  'Vertex AI': ['vertex ai', 'vertexai'],
+  XGBoost: ['xgboost', 'lightgbm', 'catboost', 'gradient boosting'],
+  JAX: ['jax'],
+  CUDA: ['cuda', 'gpu programming'],
+  Keras: ['keras'],
+  'Fine-tuning': ['fine-tuning', 'fine tuning', 'finetuning', 'lora', 'peft'],
+  'AI Agents': ['ai agents', 'agentic', 'llm agents', 'multi-agent', 'tool use', 'function calling'],
+  // more databases / messaging
+  'SQL Server': ['sql server', 'mssql', 't-sql', 'tsql'],
+  Oracle: ['oracle db', 'oracle database', 'pl/sql', 'plsql'],
+  SQLite: ['sqlite'],
+  Neo4j: ['neo4j', 'graph database', 'graph databases'],
+  NoSQL: ['nosql'],
+  'AWS SQS/SNS': ['sqs', 'sns', 'kinesis', 'eventbridge'],
+  'Pub/Sub': ['pub/sub', 'pubsub', 'google pub/sub'],
+  // more cloud / devops
+  Ansible: ['ansible'],
+  'Chef/Puppet': ['chef', 'puppet'],
+  Helm: ['helm', 'helm charts'],
+  'Service Mesh': ['istio', 'linkerd', 'service mesh', 'envoy'],
+  CloudFormation: ['cloudformation', 'aws cdk', 'cdk', 'pulumi'],
+  Serverless: ['serverless', 'cloud functions', 'azure functions'],
+  'Infrastructure as Code': ['infrastructure as code', 'iac'],
+  ArgoCD: ['argocd', 'argo cd', 'gitops'],
+  SRE: ['site reliability', 'sre', 'incident management', 'on-call', 'slos'],
+  // testing / tooling / process
+  Selenium: ['selenium', 'webdriver'],
+  Cypress: ['cypress'],
+  Playwright: ['playwright', 'puppeteer'],
+  Postman: ['postman', 'api testing'],
+  'Performance Testing': ['jmeter', 'load testing', 'performance testing', 'gatling', 'locust'],
+  Jira: ['jira', 'confluence'],
   // practices
   'Unit Testing': ['unit testing', 'unit tests', 'unit test', 'junit', 'pytest', 'jest', 'xunit'],
   'Integration Testing': ['integration testing', 'integration tests'],
@@ -98,7 +198,58 @@ const DICT: Record<string, string[]> = {
 }
 
 /** Aliases that are ordinary English words — only counted in clearly technical context. */
-const AMBIGUOUS = new Set(['go', 'r language', 'node', 'express', 'spring', 'rest', 'swift', 'rust', 'ruby', 'ts', 'tf', 'ml', 'metrics', 'logging', 'monitoring', 'security', 'containers', 'torch', 'lambda', 'c language'])
+const AMBIGUOUS = new Set([
+  'go', 'r language', 'node', 'express', 'spring', 'rest', 'swift', 'rust', 'ruby', 'ts', 'tf', 'ml', 'metrics', 'logging',
+  'monitoring', 'security', 'containers', 'torch', 'lambda', 'c language',
+  // ordinary words that are also product names
+  'excel', 'chef', 'puppet', 'helm', 'beam', 'dart', 'rails', 'chroma', 'envoy', 'agentic', 'tool use', 'analytics', 'experimentation',
+  'statistics', 'accessibility', 'dns', 'iac', 'cdk', 'on-call', 'rag', 'hive', 'presto', 'snowflake', 'bootstrap', 'flutter', 'looker', 'jax', 'lua',
+])
+
+/**
+ * Knowing a tool implies the field it belongs to: a resume listing PyTorch
+ * covers a job asking for "machine learning". One direction only — asking for
+ * machine learning doesn't mean the job wants PyTorch.
+ */
+const IMPLIES: Record<string, string[]> = {
+  PyTorch: ['Machine Learning', 'Deep Learning'],
+  TensorFlow: ['Machine Learning', 'Deep Learning'],
+  Keras: ['Machine Learning', 'Deep Learning'],
+  JAX: ['Machine Learning'],
+  'scikit-learn': ['Machine Learning'],
+  XGBoost: ['Machine Learning'],
+  'Deep Learning': ['Machine Learning'],
+  'Computer Vision': ['Machine Learning'],
+  NLP: ['Machine Learning'],
+  Transformers: ['Machine Learning', 'NLP'],
+  'Fine-tuning': ['Machine Learning', 'LLMs'],
+  RAG: ['LLMs'],
+  LangChain: ['LLMs'],
+  'AI Agents': ['LLMs'],
+  Pandas: ['Data Analysis'],
+  'Power BI': ['Data Analysis'],
+  Tableau: ['Data Analysis'],
+  QuickSight: ['Data Analysis'],
+  Looker: ['Data Analysis'],
+  'Spring Boot': ['Java'],
+  Django: ['Python'],
+  Flask: ['Python'],
+  FastAPI: ['Python'],
+  'Next.js': ['React'],
+  Kubernetes: ['Docker'],
+  'GitHub Actions': ['CI/CD'],
+  Jenkins: ['CI/CD'],
+  MySQL: ['SQL'],
+  PostgreSQL: ['SQL'],
+  'SQL Server': ['SQL'],
+}
+
+/** A set of skills plus everything they imply. */
+export function withImplied(skills: Iterable<string>): Set<string> {
+  const out = new Set(skills)
+  for (const s of [...out]) for (const p of IMPLIES[s] ?? []) out.add(p)
+  return out
+}
 
 interface Matcher {
   canonical: string
@@ -139,7 +290,7 @@ export function extractSkills(text: string): string[] {
       const raw = hit[0]
       const capitalised = /^[A-Z]/.test(raw) || raw.toUpperCase() === raw
       const window = text.slice(Math.max(0, hit.index - 60), hit.index + raw.length + 60)
-      const techNearby = /\b(api|apis|framework|language|backend|service|services|stack|developer|engineer|cloud|sdk|java|python|javascript)\b/i.test(window)
+      const techNearby = /\b(api|apis|framework|frameworks|language|languages|backend|service|services|stack|developer|engineer|cloud|sdk|java|python|javascript|sql|data|database|databases|tools?|dashboards?|pipelines?|kubernetes|docker|aws|gcp|azure|devops|tableau|power bi|spark|llms?|models?|testing)\b/i.test(window)
       if (!(capitalised && techNearby) && !(m.canonical === 'REST APIs' && /\bapis?\b|restful/i.test(window))) continue
     }
     found.add(m.canonical)

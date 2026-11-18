@@ -33,6 +33,12 @@ export const PUT = handler(async (req: Request) => {
     // Preferences changed: re-score every job in the background.
     const { enqueue } = await import('@/lib/tasks/queue')
     await enqueue('jobs.rescore', {}, { dedupeKey: 'jobs.rescore' })
+    // Amazon/Google/Microsoft are searched with your roles and locations: search again.
+    const same = (a: string[], b: string[]) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort())
+    if (!same(before.target_roles, saved.job_prefs.target_roles) || !same(before.locations, saved.job_prefs.locations)) {
+      const { queueSearchSites } = await import('@/lib/companies/schedule')
+      await queueSearchSites()
+    }
   }
   if (payload.profile && JSON.stringify(payload.profile).includes('skills')) {
     const { enqueue } = await import('@/lib/tasks/queue')

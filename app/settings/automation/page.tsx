@@ -65,7 +65,7 @@ export default function AutomationPage() {
               <p className="warn-text">
                 SMTP isn&apos;t configured yet — auto-emails will fail.{' '}
                 <a onClick={() => navigate('/settings/email')} style={{ cursor: 'pointer' }}>
-                  Set it up →
+                  Set it up
                 </a>
               </p>
             )}
@@ -76,7 +76,7 @@ export default function AutomationPage() {
                   onClick={() => navigate('/settings/profile')}
                   style={{ cursor: 'pointer' }}
                 >
-                  Add it →
+                  Add it
                 </a>
               </p>
             )}
@@ -100,14 +100,55 @@ export default function AutomationPage() {
                   onClick={() => navigate('/settings/profile')}
                   style={{ cursor: 'pointer' }}
                 >
-                  Complete it →
+                  Complete it
                 </a>
               </p>
             )}
 
+            <label className="toggle">
+              <input type="checkbox" checked={a.gform_use_ai !== false} onChange={(e) => s.set('gform_use_ai')(e.target.checked)} />
+              <span>
+                Let the AI answer Google Form questions your profile and saved answers don&apos;t cover (degree, branch,
+                “are you available…”, “tell us about yourself”). It uses your resume and the job post, copies options exactly,
+                never makes up marks, scores or dates, and skips forms you don&apos;t qualify for. Uses your Claude subscription.
+              </span>
+            </label>
+            <label className="toggle">
+              <input type="checkbox" checked={!!a.gform_tick_declarations} onChange={(e) => s.set('gform_tick_declarations')(e.target.checked)} />
+              <span>
+                Tick standard declarations on Google Forms for me (“I confirm the information I gave is correct”). Off: forms
+                with a required declaration stop for you to tick it.
+              </span>
+            </label>
+
             <p className="muted" style={{ fontSize: 12.5 }}>
               Leave these off initially — review a few applications first. Anything the
               automation isn&apos;t confident about stays in &quot;review&quot; for you.
+            </p>
+          </div>
+        </div>
+
+        <div className="card">
+          <h3>Careers-page links in Telegram posts</h3>
+          <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
+            When a post says “apply on our careers page”, pressing Apply opens it in the automation browser, attaches your
+            PDF resume from Settings → Resumes and fills the form from your profile and application answers.
+          </p>
+          <div className="stack">
+            <label className="toggle">
+              <input type="checkbox" checked={a.link_auto_submit !== false} onChange={(e) => s.set('link_auto_submit')(e.target.checked)} />
+              <span>
+                Submit the form after filling it, when every required answer is filled, it reached the last page and no
+                CAPTCHA appeared. Otherwise it stops and the post shows what it needs from you.
+              </span>
+            </label>
+            <label className="toggle">
+              <input type="checkbox" checked={!!a.auto_apply_link} onChange={(e) => s.set('auto_apply_link')(e.target.checked)} />
+              <span>Start applying on careers-page links as soon as a new post arrives (without pressing Apply)</span>
+            </label>
+            <p className="muted" style={{ fontSize: 12.5 }}>
+              Sign-in pages, CAPTCHAs and legal consent boxes always wait for you. Turn off the first switch to check
+              every form yourself before it’s sent.
             </p>
           </div>
         </div>

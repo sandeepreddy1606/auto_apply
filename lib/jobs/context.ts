@@ -3,7 +3,7 @@ import { profileYears } from '@/lib/server/matching'
 import type { Settings } from '@/lib/types'
 
 import type { ScoreContext } from './score'
-import { canonicalSkills } from './skills'
+import { canonicalSkills, withImplied } from './skills'
 
 export async function buildScoreContext(settings: Settings): Promise<ScoreContext> {
   const skillSources: string[] = [settings.profile.skills || '', ...settings.job_prefs.include_keywords]
@@ -26,7 +26,7 @@ export async function buildScoreContext(settings: Settings): Promise<ScoreContex
   const role = (settings.profile.current_role || '').trim()
   return {
     prefs: settings.job_prefs,
-    skills: canonicalSkills(skillSources),
+    skills: withImplied(canonicalSkills(skillSources)),
     years,
     fallbackRoles: role ? [role] : resumeRoles,
   }

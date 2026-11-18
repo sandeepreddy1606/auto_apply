@@ -37,6 +37,16 @@ registerHooks({
       if (url) return { url, shortCircuit: true }
     }
 
+    // Next.js subpaths ("next/server") ship as plain .js files without an
+    // "exports" map, which bundlers find but Node's ESM resolver doesn't.
+    if (/^next\/[\w/-]+$/.test(specifier)) {
+      try {
+        return nextResolve(specifier, context)
+      } catch {
+        return nextResolve(`${specifier}.js`, context)
+      }
+    }
+
     return nextResolve(specifier, context)
   },
 })

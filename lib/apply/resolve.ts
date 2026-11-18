@@ -53,16 +53,45 @@ const last = (p: Partial<Profile>) => {
   return parts.length > 1 ? parts[parts.length - 1] : ''
 }
 
+const INDIA_HINT =
+  /\b(india|bengaluru|bangalore|hyderabad|secunderabad|chennai|mumbai|pune|delhi|new delhi|noida|gurgaon|gurugram|kolkata|ahmedabad|kochi|coimbatore|jaipur|chandigarh|indore|trivandrum|thiruvananthapuram|vizag|visakhapatnam|vijayawada|mysuru|mysore|nagpur|lucknow|bhubaneswar|telangana|karnataka|tamil nadu|maharashtra|kerala|andhra pradesh)\b/i
+const COUNTRY_NAMES =
+  /^(united states|usa|us|united kingdom|uk|canada|germany|singapore|australia|uae|united arab emirates|netherlands|ireland|france|japan|india)$/i
+
+/** Your country from your location (or an Indian phone number); '' when unsure. */
+export function countryOf(p: Partial<Profile>): string {
+  const loc = (p.current_location || '').trim()
+  if (INDIA_HINT.test(loc)) return 'India'
+  const last = loc.split(',').map((x) => x.trim()).filter(Boolean).pop() || ''
+  if (COUNTRY_NAMES.test(last)) return last
+  if (/^\s*(\+91|0091)/.test(p.phone || '')) return 'India'
+  return ''
+}
+
+/** "+91" from your phone number, or from your country. */
+export function phoneCode(p: Partial<Profile>): string {
+  const m = /^\s*\+(\d{1,3})(?=[\s-])/.exec(p.phone || '')
+  if (m) return `+${m[1]}`
+  if (/^\s*\+91\d{10}$/.test(p.phone || '')) return '+91'
+  return countryOf(p) === 'India' ? '+91' : ''
+}
+
 /** [label regex, profile key, getter]. First match wins; a null getter = recognised, don't fill. */
 export const PROFILE_RULES: [RegExp, string, Getter | null][] = [
-  [/\b(company|employer|college|university|school|father|mother|reference|referr?er|recruiter)('?s)?\s+(full\s+)?name\b/, 'other_name', null],
+  // Someone else's name: recognised so it isn't filled with yours.
+  [/\b(father|mother|parent|spouse|guardian|reference|referr?er|recruiter|hiring manager|emergency contact)('?s)?\s+(full\s+)?name\b/, 'other_name', null],
+  // "College name" / "Current company name" are your details, not a person's name.
+  [/\b(college|university|school|institut\w*)\s+name\b|\bname of (your |the )?(college|university|school|institut\w*)\b/, 'college', (c) => c.profile.college || ''],
+  [/\b(company|employer|organi[sz]ation)\s+name\b|\bname of (your )?(current )?(company|employer|organi[sz]ation)\b/, 'current_company', (c) => c.profile.current_company || ''],
   [/\bpreferred\s+(first\s+)?name\b/, 'first_name', (c) => first(c.profile)],
   [/\bfirst\s*name\b|\bgiven\s*name\b/, 'first_name', (c) => first(c.profile)],
   [/\blast\s*name\b|\bsurname\b|\bfamily\s*name\b/, 'last_name', (c) => last(c.profile)],
   [/\bfull\s*name\b|^name$|\byour name\b|\bcandidate name\b|^legal name/, 'full_name', (c) => c.profile.full_name || ''],
   // Labels are normalised (punctuation → spaces) before matching: "E-mail" arrives as "e mail".
   [/\be ?mail\b/, 'email', (c) => c.profile.email || ''],
+  [/\b(country|dial(ling)?|phone|isd|calling)\s*code\b/, 'phone_code', (c) => phoneCode(c.profile)],
   [/\bphone\b|\bmobile\b|\bcontact (no|number)\b|\bwhats ?app\b/, 'phone', (c) => c.profile.phone || ''],
+  [/\bcountry\b/, 'country', (c) => countryOf(c.profile)],
   [/\blinked ?in\b/, 'linkedin', (c) => c.profile.linkedin || ''],
   [/\bgit ?hub\b/, 'github', (c) => c.profile.github || ''],
   [/\bportfolio\b|\bpersonal (web)?site\b|\bwebsite\b|\bother (url|link)/, 'portfolio', (c) => c.profile.portfolio || c.profile.github || ''],
@@ -88,7 +117,7 @@ export const ANSWER_RULES: [RegExp, AnswerKey][] = [
   [/\b(require|need)\w*\b.*\bsponsor|\bsponsorship\b|\bvisa\b/, 'sponsorship_now'],
   [/\b(legally )?(authori[sz]ed|eligible|permitted|right) to work\b|\bwork (permit|authori[sz]ation)\b/, 'authorized_india'],
   [/\bcitizen(ship)?\b|\bnationality\b/, 'citizenship'],
-  [/\bnotice period\b|\bhow (soon|quickly) can you (join|start)\b|\bjoining time\b/, 'notice_period'],
+  [/\bnotice period\b|\bhow (soon|quickly) (can|could|would|will) you (be available to )?(join|start)\b|\bwhen can you (join|start)\b|\bjoining (time|availability|date)\b|\bavailable to join\b/, 'notice_period'],
   [/\b(earliest |available )?start(ing)? date\b|\bwhen can you start\b|\bavailability\b|\bavailable to start\b/, 'start_date'],
   [/\bcurrent (ctc|salary|compensation|package|pay)\b/, 'current_ctc'],
   [/\bexpected (ctc|salary|compensation|package|pay)\b|\bsalary expectation|\bdesired (salary|compensation|pay)\b|\bcompensation expectation/, 'expected_ctc'],
@@ -108,6 +137,15 @@ export const ANSWER_RULES: [RegExp, AnswerKey][] = [
 ]
 
 const EEO_KEYS: AnswerKey[] = ['gender', 'race', 'veteran', 'disability', 'pronouns']
+
+/** Profile fields that answer the same question as an Application answer. */
+const PROFILE_FALLBACK: Partial<Record<AnswerKey, (p: Partial<Profile>) => string>> = {
+  notice_period: (p) => p.notice_period || '',
+  current_ctc: (p) => p.current_ctc || '',
+  expected_ctc: (p) => p.expected_ctc || '',
+  relocation: (p) => p.willing_to_relocate || '',
+  gender: (p) => p.gender || '',
+}
 
 // ---------- option matching ----------
 
@@ -174,7 +212,9 @@ const OPEN_QUESTION = /\bwhy\b|\btell us\b|\bdescribe\b|\bexplain\b|\bcover lett
 function answerFor(key: AnswerKey, ctx: ResolveContext, field: FormField): string | null {
   const a = ctx.answers
   if (a.always_ask.includes(key)) return null
-  const v = a[key]
+  // Settings → Application answers first, then the same detail from your Profile.
+  const own = a[key]
+  const v = (typeof own === 'string' && own.trim()) || PROFILE_FALLBACK[key]?.(ctx.profile) || own
   if (key === 'work_modes') {
     const modes = (a.work_modes || []).map((m) => m.toLowerCase())
     const label = field.label.toLowerCase()
@@ -195,7 +235,11 @@ function answerFor(key: AnswerKey, ctx: ResolveContext, field: FormField): strin
   return typeof v === 'string' && v ? v : null
 }
 
-export function resolveField(field: FormField, ctx: ResolveContext): PlannedAnswer {
+/**
+ * skipProfile: don't answer from Profile fields (used for questions about a
+ * different degree/school than the one in your profile, and yes/no questions).
+ */
+export function resolveField(field: FormField, ctx: ResolveContext, opts: { skipProfile?: boolean } = {}): PlannedAnswer {
   const label = normQuestion(field.label)
   const base = { field_id: field.id, filled: false, profile_key: null as string | null }
   const done = (value: AnswerValue, source: PlannedAnswer['source'], confidence: PlannedAnswer['confidence'], note: string | null = null, profileKey: string | null = null): PlannedAnswer => ({
@@ -253,7 +297,7 @@ export function resolveField(field: FormField, ctx: ResolveContext): PlannedAnsw
   }
 
   // 3. profile rules
-  for (const [re, key, get] of PROFILE_RULES) {
+  for (const [re, key, get] of opts.skipProfile ? [] : PROFILE_RULES) {
     if (!re.test(label)) continue
     if (!get) break // recognised as "someone else's name" etc.: don't fill from profile
     const v = get(ctx)

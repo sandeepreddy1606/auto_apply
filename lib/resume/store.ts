@@ -203,7 +203,7 @@ export async function lockedVersions(excludeSession: number, limit = 30): Promis
   const rows = await sql.all(
     `SELECT v.*, j.title AS job_title, c.name AS company_name, j.description_text
      FROM resume_versions v JOIN company_jobs j ON j.id = v.job_id JOIN companies c ON c.id = j.company_id
-     WHERE v.status = 'locked' AND (v.session_id IS NULL OR v.session_id != ?) ORDER BY v.id DESC LIMIT ?`,
+     WHERE v.status = 'locked' AND v.generated_by != 'upload' AND (v.session_id IS NULL OR v.session_id != ?) ORDER BY v.id DESC LIMIT ?`,
     [excludeSession, limit],
   )
   return rows.map((r) => ({

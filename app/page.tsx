@@ -1,290 +1,379 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+/**
+ * Overview: what changed, what needs you, and how the search is going.
+ *
+ *   Shortlist      the three best matches, each one tap from applying
+ *   Figures        new matches, in progress, applied, interviews
+ *   Needs you      applications waiting on an answer, a sign-in or a decision
+ *   More matches   the next best-scoring open jobs
+ *   New matches    jobs found per day, last 30 days (single series, hover for counts)
+ *   Pipeline       found → started → applied → screening → interview → offer
+ *   Get set up     only until the basics are done
+ */
+import { useEffect, useMemo, useState } from 'react'
 
 import { useTelegramStatus } from '@/components/AppShell'
+import { ScorePill } from '@/components/career/ui'
 import {
-  BuildingIcon,
-  ChevronRight,
-  PlusSquare,
-  SendIcon,
-  Sliders,
+  AlertIcon, ArrowRightIcon, BoltIcon, BriefcaseIcon, CheckIcon, ChevronRight, ClockIcon, InboxIcon, PinIcon, PlusSquare,
 } from '@/components/Icons'
+import { useToast } from '@/components/Toast'
 import { useNavigate } from '@/components/Navigation'
-import PageHeader from '@/components/PageHeader'
+import { useAuth } from '@/components/AuthProvider'
+import { profileCompleteness } from '@/components/settings/shared'
 import { api } from '@/lib/api'
-import type { Application, CompanyJobsSummary, Stats } from '@/lib/types'
+import { career } from '@/lib/career-api'
+import type { TrackerRow } from '@/lib/career-api'
+import type { CompanyJobsSummary, JobListItem, Settings, Stats } from '@/lib/types'
 
-function relTime(iso: string | null): string | null {
-  if (!iso) return null
-  const diff = Date.now() - new Date(iso).getTime()
-  const min = Math.floor(diff / 60000)
-  if (min < 1) return 'just now'
-  if (min < 60) return `${min} min ago`
-  const h = Math.floor(min / 60)
-  if (h < 24) return `${h}h ago`
-  const d = Math.floor(h / 24)
-  return d === 1 ? 'yesterday' : `${d} days ago`
+const DAY = 86_400_000
+
+function ago(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = Date.now() - Date.parse(iso)
+  if (d < 3_600_000) return `${Math.max(1, Math.round(d / 60_000))}m`
+  if (d < DAY) return `${Math.round(d / 3_600_000)}h`
+  return `${Math.round(d / DAY)}d`
 }
 
-function MonthDots({
-  year,
-  month,
-  counts,
-}: {
-  year: number
-  month: number
-  counts: Record<string, number>
-}) {
-  const label = new Date(year, month, 1).toLocaleString('en', { month: 'short' })
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const firstWeekday = new Date(year, month, 1).getDay()
-  const cells = []
-  for (let i = 0; i < firstWeekday; i += 1) {
-    cells.push(<span key={`pad${i}`} className="dot" style={{ opacity: 0 }} />)
-  }
-  for (let d = 1; d <= daysInMonth; d += 1) {
-    const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-    const c = counts[key] || 0
-    cells.push(<span key={d} className={`dot ${c >= 2 ? 'l2' : c === 1 ? 'l1' : ''}`} />)
-  }
-  return (
-    <div className="month">
-      <div className="m-label">{label}</div>
-      <div className="dots">{cells}</div>
-    </div>
-  )
+function greeting(): string {
+  const h = new Date().getHours()
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
+}
+
+const ATTN: Record<string, [string, 'bad' | 'warn' | 'info']> = {
+  needs_input: ['Answer the open questions', 'warn'],
+  blocked: ['Sign in on the site, then continue', 'warn'],
+  unconfirmed: ['Did it go through? Tell us', 'bad'],
+  reviewing: ['Ready — review and submit', 'info'],
+  failed: ['Stopped — try again', 'bad'],
+  resume_ready: ['Resume chosen — start autofill', 'info'],
 }
 
 export default function HomePage() {
   const { tg } = useTelegramStatus()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [stats, setStats] = useState<Stats | null>(null)
-  const [activity, setActivity] = useState<Record<string, number>>({})
-  const [recent, setRecent] = useState<Application[]>([])
-  const [jobsSummary, setJobsSummary] = useState<CompanyJobsSummary | null>(null)
+  const [summary, setSummary] = useState<CompanyJobsSummary | null>(null)
+  const [sessions, setSessions] = useState<TrackerRow[] | null>(null)
+  const [top, setTop] = useState<JobListItem[] | null>(null)
+  const [recent, setRecent] = useState<JobListItem[]>([])
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const [hasPdf, setHasPdf] = useState(false)
+  const [starting, setStarting] = useState<number | null>(null)
+  const toast = useToast()
+
+  // One tap from the shortlist straight into an application.
+  const startApply = async (jobId: number) => {
+    setStarting(jobId)
+    try {
+      const r = await career.startApply(jobId)
+      for (const w of r.warnings) toast(w, 'info')
+      navigate(`/apply/${r.session_id}`)
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setStarting(null)
+    }
+  }
 
   useEffect(() => {
     let alive = true
     const load = async () => {
-      try {
-        const [st, act, apps, cj] = await Promise.all([
-          api.stats(),
-          api.activity(),
-          api.listApplications(),
-          api.companyJobsSummary().catch(() => null),
-        ])
-        if (!alive) return
-        setStats(st)
-        setActivity(act)
-        setRecent(apps)
-        setJobsSummary(cj)
-      } catch {
-        /* backend warming up */
-      }
+      const [st, cj, ss, tp, rc, se] = await Promise.all([
+        api.stats().catch(() => null),
+        api.companyJobsSummary().catch(() => null),
+        career.sessions().catch(() => null),
+        career.jobs({ view: 'relevant', sort: 'score', limit: 9 }).catch(() => null),
+        career.jobs({ view: 'relevant', sort: 'newest', limit: 300 }).catch(() => null),
+        api.getSettings().catch(() => null),
+      ])
+      if (!alive) return
+      setStats(st)
+      setSummary(cj)
+      setSessions(ss ?? [])
+      setTop(tp?.items ?? [])
+      setRecent(rc?.items ?? [])
+      setSettings(se)
+      setHasPdf(Boolean(se?.resumes?.some((r) => /\.pdf$/i.test(r.stored))))
     }
     void load()
-    const t = setInterval(load, 10000)
+    const t = setInterval(load, 15000)
     return () => {
       alive = false
       clearInterval(t)
     }
   }, [])
 
-  const s = stats?.by_status || {}
-  const review = s.review || 0
-  const applied = s.applied || 0
-  const total = stats?.total || 0
-  const pct = total ? Math.min(1, review / total) : 0
-  const latest = recent[0]
-  const latestPending = recent.find((r) => r.status === 'review')
+  const s = sessions ?? []
+  const submitted = s.filter((x) => x.status === 'submitted')
+  const inProgress = s.filter((x) => !['submitted', 'cancelled'].includes(x.status))
+  const attention = s.filter((x) => x.status in ATTN).slice(0, 6)
+  const tgApplied = stats?.by_status?.applied || 0
+  const appliedTotal = submitted.length + tgApplied
+  const appliedWeek = submitted.filter((x) => x.submitted_at && Date.now() - Date.parse(x.submitted_at) < 7 * DAY).length + (stats?.applied_7d || 0)
+  const responded = submitted.filter((x) => x.stage && ['screening', 'interview', 'offer'].includes(x.stage)).length
+  const interviews = submitted.filter((x) => x.stage && ['interview', 'offer'].includes(x.stage)).length
+  const reviewTg = stats?.by_status?.review || 0
 
-  const now = new Date()
-  const months = [2, 1, 0].map((back) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - back, 1)
-    return { year: d.getFullYear(), month: d.getMonth() }
-  })
+  // New matches per day, last 30 days.
+  const days = useMemo(() => {
+    const out: { key: string; label: string; n: number }[] = []
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today.getTime() - i * DAY)
+      out.push({ key: d.toDateString(), label: d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }), n: 0 })
+    }
+    const idx = new Map(out.map((d, i) => [d.key, i]))
+    for (const j of recent) {
+      const t = new Date(j.first_seen_at)
+      t.setHours(0, 0, 0, 0)
+      const i = idx.get(t.toDateString())
+      if (i !== undefined) out[i].n++
+    }
+    return out
+  }, [recent])
+  const maxDay = Math.max(1, ...days.map((d) => d.n))
+  const total30 = days.reduce((a, d) => a + d.n, 0)
 
-  const R = 27
-  const CIRC = 2 * Math.PI * R
+  const pipeline: [string, number][] = [
+    ['Matched', summary?.total_matched ?? 0],
+    ['Started', s.filter((x) => x.status !== 'cancelled').length],
+    ['Applied', submitted.length],
+    ['Heard back', responded],
+    ['Interview', interviews],
+    ['Offer', submitted.filter((x) => x.stage === 'offer').length],
+  ]
+  const pipeMax = Math.max(1, ...pipeline.map(([, n]) => n))
+  const RAMP = ['var(--viz-ramp-5)', 'var(--viz-ramp-4)', 'var(--viz-ramp-3)', 'var(--viz-ramp-2)', 'var(--viz-ramp-1)', 'var(--viz-ramp-1)']
+
+  const p = settings?.profile
+  const { filled, total } = profileCompleteness(p || {})
+  const steps: { done: boolean; title: string; sub: string; to: string }[] = settings
+    ? [
+        { done: !!settings.job_prefs?.target_roles?.length, title: 'Choose your target roles', sub: 'Only matching titles count as relevant', to: '/settings/preferences' },
+        { done: (summary?.companies ?? 0) > 0, title: 'Watch a company’s career page', sub: 'Amazon, Google, Microsoft or any ATS board', to: '/companies' },
+        { done: hasPdf, title: 'Upload your resume PDF', sub: 'Lets you apply before installing LaTeX', to: '/settings/resumes' },
+        { done: filled >= Math.min(total, 12), title: 'Complete your profile', sub: `${filled}/${total} fields — used to fill forms`, to: '/settings/profile' },
+        { done: tg.state === 'connected', title: 'Connect Telegram (optional)', sub: 'Pick up job posts from your channels', to: '/settings/telegram' },
+      ]
+    : []
+  const doneSteps = steps.filter((x) => x.done).length
+  const firstName = (user?.name || '').trim().split(/\s+/)[0]
 
   return (
-    <>
-      <PageHeader
-        large
-        title="Overview"
-        actions={
-          <>
-            <span className={`live-chip ${tg.state === 'connected' ? 'on' : ''}`}>
-              <span className="pulse" />
-              {tg.state === 'connected' ? 'Listening' : 'Offline'}
-            </span>
-            <button
-              className="icon-btn"
-              onClick={() => navigate('/paste')}
-              title="Paste a job message"
-            >
-              <PlusSquare />
-            </button>
-          </>
-        }
-      />
-
-      {tg.state !== 'connected' && (
-        <div className="card connect-card" onClick={() => navigate('/settings/telegram')}>
-          <span className="c-icon">
-            <SendIcon style={{ width: 20, height: 20 }} />
-          </span>
+    <div className="dash wide">
+      <header className="hero">
+        <div className="hero-top">
           <div>
-            <div className="c-title">Connect Telegram</div>
-            <div className="c-sub">
-              Job posts from your private channels will land here automatically.
-            </div>
+            <h1 className="hero-title">{greeting()}{firstName ? `, ${firstName}` : ''}</h1>
+            <p className="hero-sub">
+              {summary?.new_matched
+                ? `${summary.new_matched} new job${summary.new_matched > 1 ? 's' : ''} match your profile${attention.length ? `, and ${attention.length} application${attention.length > 1 ? 's' : ''} need${attention.length > 1 ? '' : 's'} you.` : '.'}`
+                : attention.length
+                  ? `${attention.length} application${attention.length > 1 ? 's' : ''} need${attention.length > 1 ? '' : 's'} you.`
+                  : 'You’re all caught up.'}
+            </p>
           </div>
-          <ChevronRight className="chev" style={{ width: 18, height: 18 }} />
-        </div>
-      )}
-
-      <div className="widget-row">
-        <div className="card widget" onClick={() => navigate('/applications')}>
-          <span className="corner">
-            <Sliders />
-          </span>
-          <div className="ring">
-            <svg className="track" width="62" height="62">
-              <circle
-                cx="31"
-                cy="31"
-                r={R}
-                fill="none"
-                stroke="rgba(255,255,255,0.12)"
-                strokeWidth="5"
-              />
-              <circle
-                cx="31"
-                cy="31"
-                r={R}
-                fill="none"
-                stroke="#fff"
-                strokeWidth="5"
-                strokeLinecap="round"
-                strokeDasharray={`${Math.max(0.03, pct) * CIRC} ${CIRC}`}
-              />
-            </svg>
-            {review}
-          </div>
-          <div>
-            <div className="w-title">Needs review</div>
-            <div className="w-sub">
-              {latestPending ? latestPending.job_title || 'Untitled post' : 'Queue is clear'}
-            </div>
+          <div className="row-actions" style={{ marginTop: 0 }}>
+            <button className="btn" onClick={() => navigate('/paste')}><PlusSquare /> Paste a post</button>
+            <button className="btn" onClick={() => navigate('/jobs')}><BriefcaseIcon /> All jobs</button>
           </div>
         </div>
 
-        <div className="card widget" onClick={() => navigate('/applications')}>
-          <span className="corner">
-            <Sliders />
-          </span>
-          <div className="big-num">
-            {applied}
-            <span className="unit">jobs</span>
-          </div>
-          <div>
-            <div className="w-title">Applied</div>
-            <div className="w-sub">
-              {stats?.last_applied_at ? relTime(stats.last_applied_at) : 'nothing sent yet'}
+        {top && top.length > 0 && (
+          <section className="shortlist" aria-label="Best matches today">
+            <h2 className="shortlist-title">Best matches today</h2>
+            {top.slice(0, 3).map((j) => (
+              <article key={j.id} className="pick">
+                <ScorePill score={j.match_score} breakdown={j.match_breakdown} size="lg" />
+                <button className="pick-body" onClick={() => navigate(`/jobs/${j.id}`)}>
+                  <span className="pick-title">{j.title}</span>
+                  <span className="meta">
+                    <span className="strong">{j.company_name}</span>
+                    {j.location && <span><PinIcon />{j.location.split(',')[0]}</span>}
+                    {j.match_breakdown?.experience_range && <span>{j.match_breakdown.experience_range.replace(' y', ' years')}</span>}
+                    <span><ClockIcon />{ago(j.posted_at || j.first_seen_at)} ago</span>
+                  </span>
+                  {j.match_breakdown && j.match_breakdown.skills_have.length > 0 && (
+                    <span className="pick-why">You have {j.match_breakdown.skills_have.slice(0, 4).join(', ')}</span>
+                  )}
+                </button>
+                <div className="pick-actions">
+                  {j.session_id ? (
+                    <button className="btn" onClick={() => navigate(`/apply/${j.session_id}`)}>Continue</button>
+                  ) : (
+                    <button className="btn primary" disabled={starting === j.id} onClick={() => void startApply(j.id)}>
+                      {starting === j.id ? <span className="spin" /> : <BoltIcon fill="currentColor" strokeWidth={0} />} Apply
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))}
+          </section>
+        )}
+
+        <dl className="figures">
+          <button onClick={() => navigate('/jobs')}><dt>New matches</dt><dd>{summary ? summary.new_matched : '–'}</dd></button>
+          <button onClick={() => navigate('/tracker')}><dt>In progress</dt><dd>{sessions ? inProgress.length : '–'}</dd>{attention.length > 0 && <em>{attention.length} need you</em>}</button>
+          <button onClick={() => navigate('/tracker')}><dt>Applied</dt><dd>{sessions ? appliedTotal : '–'}</dd>{appliedWeek > 0 && <em className="good">{appliedWeek} this week</em>}</button>
+          <button onClick={() => navigate('/tracker')}><dt>Interviews</dt><dd>{sessions ? interviews : '–'}</dd>{submitted.length > 0 && <em>{Math.round((responded / submitted.length) * 100)}% heard back</em>}</button>
+        </dl>
+      </header>
+
+      <div className="dash-grid">
+        <div className="dash-col">
+          <section className="card">
+            <div className="card-head">
+              <div>
+                <div className="card-title">Needs you</div>
+                <div className="card-sub">Applications waiting on an answer, a sign-in or a decision</div>
+              </div>
+              <button className="card-link" onClick={() => navigate('/tracker')}>All applications <ChevronRight /></button>
             </div>
-          </div>
+            {attention.length === 0 && reviewTg === 0 ? (
+              <div className="empty-state" style={{ padding: '18px 0 8px' }}>
+                <span className="es-icon"><CheckIcon /></span>
+                <b>Nothing needs you</b>
+                <p>Start an application from a job you like — the browser fills the form and stops before submitting.</p>
+              </div>
+            ) : (
+              <div className="attn">
+                {attention.map((x) => {
+                  const [label, tone] = ATTN[x.status]
+                  return (
+                    <button key={x.id} className="attn-row" onClick={() => navigate(`/apply/${x.id}`)}>
+                      <span className="logo-tile">{x.company_name.slice(0, 2)}</span>
+                      <span className="at-body">
+                        <div className="at-title">{x.job_title}</div>
+                        <div className="at-sub"><span className={`at-reason ${tone}`}>{label}. </span>{x.company_name}, updated {ago(x.updated_at)} ago</div>
+                      </span>
+                      <span className={`pill ${tone}`}>{tone === 'bad' && <AlertIcon style={{ width: 12, height: 12 }} />}{label}</span>
+                      <ChevronRight />
+                    </button>
+                  )
+                })}
+                {reviewTg > 0 && (
+                  <button className="attn-row" onClick={() => navigate('/applications')}>
+                    <span className="logo-tile"><InboxIcon style={{ width: 16, height: 16 }} /></span>
+                    <span className="at-body">
+                      <div className="at-title">{reviewTg} Telegram post{reviewTg > 1 ? 's' : ''} to review</div>
+                      <div className="at-sub">Email and Google Form applications from your channels</div>
+                    </span>
+                    <span className="pill info">Review</span>
+                    <ChevronRight />
+                  </button>
+                )}
+              </div>
+            )}
+          </section>
+
+          <section className="card">
+            <div className="card-head">
+              <div>
+                <div className="card-title">More matches</div>
+                <div className="card-sub">Next best fits for your roles, skills and experience</div>
+              </div>
+              <button className="card-link" onClick={() => navigate('/jobs')}>See all <ChevronRight /></button>
+            </div>
+            {top === null ? (
+              <div className="skeleton" style={{ height: 180 }} />
+            ) : top.length === 0 ? (
+              <div className="empty-state" style={{ padding: '18px 0 8px' }}>
+                <span className="es-icon"><BriefcaseIcon /></span>
+                <b>No matches yet</b>
+                <p>Watch a company’s career page and set your target roles — matching jobs appear here.</p>
+                <button className="btn sm" onClick={() => navigate('/companies')}>Add a company</button>
+              </div>
+            ) : top.length <= 3 ? (
+              <p className="muted small">The shortlist above is everything above your relevance threshold right now.</p>
+            ) : (
+              <div>
+                {top.slice(3).map((j) => (
+                  <button key={j.id} className="match-row" onClick={() => navigate(`/jobs/${j.id}`)}>
+                    <ScorePill score={j.match_score} breakdown={j.match_breakdown} size="sm" />
+                    <span style={{ minWidth: 0 }}>
+                      <div className="mr-title">{j.title}</div>
+                      <div className="mr-sub">{j.company_name}{j.location ? `, ${j.location.split(',')[0]}` : ''}</div>
+                    </span>
+                    <span className="mr-time">{ago(j.posted_at || j.first_seen_at)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div className="dash-col">
+          {steps.length > 0 && doneSteps < steps.length && (
+            <section className="card">
+              <div className="card-head" style={{ marginBottom: 6 }}>
+                <div>
+                  <div className="card-title">Get set up</div>
+                  <div className="card-sub">{doneSteps} of {steps.length} done</div>
+                </div>
+              </div>
+              <div className="progress-line"><i style={{ width: `${(doneSteps / steps.length) * 100}%` }} /></div>
+              <div className="setup-list">
+                {steps.map((st) => (
+                  <button key={st.title} className={`setup-step ${st.done ? 'done' : ''}`} onClick={() => navigate(st.to)}>
+                    <span className={`ck ${st.done ? 'done' : ''}`}>{st.done && <CheckIcon />}</span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <div className="ss-title">{st.title}</div>
+                      {!st.done && <div className="ss-sub">{st.sub}</div>}
+                    </span>
+                    {!st.done && <ArrowRightIcon style={{ width: 15, height: 15, color: 'var(--dim-2)' }} />}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="card">
+            <div className="card-head">
+              <div>
+                <div className="card-title">New matches per day</div>
+                <div className="card-sub">{total30} found in the last 30 days</div>
+              </div>
+            </div>
+            <div className="bars" role="img" aria-label={`New matching jobs per day over the last 30 days, ${total30} in total`}>
+              {days.map((d) => (
+                <div key={d.key} className={`bar-col ${d.n ? '' : 'zero'}`}>
+                  <i style={{ height: `${d.n ? Math.max(4, (d.n / maxDay) * 100) : 2}%` }} />
+                  <span className="tip"><b>{d.n}</b> new on {d.label}</span>
+                </div>
+              ))}
+            </div>
+            <div className="bars-base" />
+            <div className="bars-axis"><span>{days[0]?.label}</span><span>{days[14]?.label}</span><span>Today</span></div>
+            <table className="sr-only">
+              <caption>New matching jobs per day</caption>
+              <tbody>{days.filter((d) => d.n).map((d) => <tr key={d.key}><th>{d.label}</th><td>{d.n}</td></tr>)}</tbody>
+            </table>
+          </section>
+
+          <section className="card">
+            <div className="card-head">
+              <div>
+                <div className="card-title">Pipeline</div>
+                <div className="card-sub">From match to offer</div>
+              </div>
+            </div>
+            <div className="pipeline">
+              {pipeline.map(([label, n], i) => (
+                <div className="pipe-row" key={label}>
+                  <span className="p-label">{label}</span>
+                  <span className="pipe-track"><i style={{ width: `${n ? Math.max(1.5, (n / pipeMax) * 100) : 0}%`, background: RAMP[i] }} /></span>
+                  <span className="p-n">{n}</span>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
       </div>
-
-      <div className="card activity-card" onClick={() => navigate('/applications')}>
-        <div className="months">
-          {months.map((m) => (
-            <MonthDots
-              key={`${m.year}-${m.month}`}
-              year={m.year}
-              month={m.month}
-              counts={activity}
-            />
-          ))}
-        </div>
-        <div className="activity-foot">
-          <span className="badge-circle">{total}</span>
-          <div>
-            <div className="f-title">
-              {latest ? latest.job_title || 'New message' : 'No messages yet'}
-            </div>
-            <div className="f-sub">
-              {latest
-                ? `${latest.channel || latest.source} · ${relTime(latest.created_at)}`
-                : 'Incoming posts show up here'}
-            </div>
-          </div>
-          <span className="corner-inline">
-            <Sliders style={{ width: 18, height: 18 }} />
-          </span>
-        </div>
-      </div>
-
-      {jobsSummary && jobsSummary.companies > 0 && (
-        <div className="card stat-row" onClick={() => navigate('/companies')}>
-          <span
-            className="c-icon"
-            style={{
-              width: 44,
-              height: 44,
-              minWidth: 44,
-              borderRadius: 14,
-              background: 'var(--card-2)',
-              border: '1px solid var(--stroke)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--dim)',
-            }}
-          >
-            <BuildingIcon style={{ width: 20, height: 20 }} />
-          </span>
-          <div>
-            <div className="s-title">Career-page openings</div>
-            <div className="s-sub">
-              {jobsSummary.new_matched > 0
-                ? `${jobsSummary.new_matched} new match your profile`
-                : `watching ${jobsSummary.companies} compan${jobsSummary.companies > 1 ? 'ies' : 'y'}`}
-            </div>
-          </div>
-          <div className="s-num">
-            {jobsSummary.total_matched}
-            <span className="unit">for you</span>
-          </div>
-          <span className="corner-inline">
-            <ChevronRight style={{ width: 18, height: 18 }} />
-          </span>
-        </div>
-      )}
-
-      <div className="card stat-row" onClick={() => navigate('/applications')}>
-        <div>
-          <div className="s-title">Applications sent</div>
-          <div className="s-sub">Last 7 days</div>
-        </div>
-        <div className="s-num">
-          {stats?.applied_7d ?? 0}
-          <span className="unit">jobs</span>
-        </div>
-        <span className="corner-inline">
-          <Sliders style={{ width: 18, height: 18 }} />
-        </span>
-      </div>
-
-      <button
-        className="square-btn"
-        onClick={() => navigate('/paste')}
-        title="Paste a job message"
-      >
-        <PlusSquare />
-      </button>
-    </>
+    </div>
   )
 }

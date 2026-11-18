@@ -6,21 +6,34 @@
  * aria-label, legend/fieldset, nearby text), tags it with data-aa-id, and
  * returns a serializable field list. Radio and checkbox groups become one field.
  */
-import type { Page } from 'playwright'
+import type { Locator, Page } from 'playwright'
+
+import { frames } from './adapters'
 
 import type { AnswerValue, FormField } from '@/lib/types'
 
 export const EXTRACT_SCRIPT = `((prefix) => {
+  const labelVisible = (el) => {
+    const lab = (el.id && document.querySelector('label[for="' + CSS.escape(el.id) + '"]')) || el.closest('label')
+    return !!(lab && lab.getBoundingClientRect().width > 0)
+  }
   const visible = (el) => {
     if (!el || !(el instanceof Element)) return false
-    const st = getComputedStyle(el)
-    if (st.display === 'none' || st.visibility === 'hidden') return false
-    const r = el.getBoundingClientRect()
-    if (r.width === 0 && r.height === 0) {
-      // Styled radios/checkboxes/files are often hidden behind a visible label.
-      const lab = el.id && document.querySelector('label[for="' + CSS.escape(el.id) + '"]')
-      return !!(lab && lab.getBoundingClientRect().width > 0) || el.type === 'file'
+    const type = (el.getAttribute('type') || '').toLowerCase()
+    // Resume uploads are often hidden behind a styled "Attach" button.
+    if (type === 'file') {
+      const fst = getComputedStyle(el)
+      const fr = el.getBoundingClientRect()
+      if (fst.display !== 'none' && fst.visibility !== 'hidden' && (fr.width > 0 || fr.height > 0)) return true
+      const hint = [el.id, el.name, el.getAttribute('aria-label'), el.getAttribute('accept'), (el.closest('label, div, fieldset') || {}).innerText]
+        .join(' ').slice(0, 400)
+      return /resume|cv|curriculum|cover|attach|upload|pdf|document/i.test(hint)
     }
+    const st = getComputedStyle(el)
+    // Styled radios/checkboxes hide the real input behind a visible label.
+    if (st.display === 'none' || st.visibility === 'hidden') return (type === 'radio' || type === 'checkbox') && labelVisible(el)
+    const r = el.getBoundingClientRect()
+    if (r.width === 0 && r.height === 0) return labelVisible(el)
     return true
   }
   const clean = (s) => (s || '').replace(/\\s+/g, ' ').replace(/\\*+\\s*$/, '').trim()
@@ -106,17 +119,52 @@ export const EXTRACT_SCRIPT = `((prefix) => {
 })`
 
 export async function extractFields(page: Page, step: number): Promise<FormField[]> {
-  // Ids are prefixed with the step so fields on different pages never collide.
-  const raw = (await page.evaluate(`${EXTRACT_SCRIPT}(${JSON.stringify(`s${step}f`)})`)) as FormField[]
-  return raw.map((f) => ({ ...f, step, label: f.label.slice(0, 300) }))
+  // Ids are prefixed with the step (and frame) so fields never collide.
+  const out: FormField[] = []
+  const all = frames(page)
+  for (let i = 0; i < all.length; i++) {
+    const prefix = i === 0 ? `s${step}f` : `s${step}i${i}f`
+    const raw = (await all[i].evaluate(`${EXTRACT_SCRIPT}(${JSON.stringify(prefix)})`).catch(() => [])) as FormField[]
+    out.push(...raw.map((f) => ({ ...f, step, label: f.label.slice(0, 300) })))
+  }
+  return out
 }
 
 const sel = (id: string) => `[data-aa-id="${id}"]`
 
+/** The field's controls, wherever they are (the page or an embedded form frame). */
+async function locate(page: Page, id: string): Promise<Locator> {
+  for (const f of frames(page)) {
+    const loc = f.locator(sel(id))
+    if (await loc.count().catch(() => 0)) return loc
+  }
+  return page.locator(sel(id))
+}
+
+/** Index of the option whose label matches: exact first, then "starts with". */
+async function pickOption(loc: Locator, want: string): Promise<number> {
+  const n = await loc.count()
+  const labels: string[] = []
+  for (let i = 0; i < n; i++) {
+    labels.push(
+      (await loc.nth(i).evaluate((el) => {
+        const id = (el as HTMLInputElement).id
+        const l = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : el.closest('label')
+        return ((l as HTMLElement | null)?.innerText || (el as HTMLInputElement).value || '').trim()
+      })).toLowerCase().replace(/\s+/g, ' '),
+    )
+  }
+  const w = want.toLowerCase().replace(/\s+/g, ' ').trim()
+  const exact = labels.indexOf(w)
+  if (exact >= 0) return exact
+  // "No" must not tick "Not applicable": a prefix only counts at a word boundary.
+  return labels.findIndex((l) => l.startsWith(w) && !/[a-z0-9]/.test(l.charAt(w.length)))
+}
+
 /** Put one answer into the page. Returns true when the value is in place. */
 export async function fillField(page: Page, field: FormField, value: AnswerValue, typingDelayMs: number): Promise<boolean> {
   if (value === null || value === '') return false
-  const loc = page.locator(sel(field.id))
+  const loc = await locate(page, field.id)
   switch (field.kind) {
     case 'file': {
       await loc.first().setInputFiles(String(value))
@@ -129,21 +177,10 @@ export async function fillField(page: Page, field: FormField, value: AnswerValue
       return true
     }
     case 'radio': {
-      const want = String(value).toLowerCase()
-      const n = await loc.count()
-      for (let i = 0; i < n; i++) {
-        const r = loc.nth(i)
-        const lab = (await r.evaluate((el) => {
-          const id = (el as HTMLInputElement).id
-          const l = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : el.closest('label')
-          return ((l as HTMLElement | null)?.innerText || (el as HTMLInputElement).value || '').trim()
-        })).toLowerCase()
-        if (lab === want || lab.startsWith(want)) {
-          await r.check({ force: true })
-          return true
-        }
-      }
-      return false
+      const i = await pickOption(loc, String(value))
+      if (i < 0) return false
+      await loc.nth(i).check({ force: true })
+      return true
     }
     case 'checkbox': {
       if (typeof value === 'boolean') {
@@ -192,12 +229,13 @@ export async function fillField(page: Page, field: FormField, value: AnswerValue
 
 /** What the page currently holds for a field (read-back verification). */
 export async function readField(page: Page, field: FormField): Promise<string> {
-  const loc = page.locator(sel(field.id)).first()
+  const all = await locate(page, field.id)
+  const loc = all.first()
   try {
     if (field.kind === 'select') return await loc.evaluate((el) => (el as HTMLSelectElement).selectedOptions[0]?.textContent?.trim() ?? '')
     if (field.kind === 'file') return await loc.evaluate((el) => (el as HTMLInputElement).files?.[0]?.name ?? '')
     if (field.kind === 'radio' || field.kind === 'checkbox') {
-      return await page.locator(sel(field.id)).evaluateAll((els) =>
+      return await all.evaluateAll((els) =>
         (els as HTMLInputElement[]).filter((e) => e.checked).map((e) => e.value).join(', '),
       )
     }

@@ -197,7 +197,8 @@ export function scoreJob(job: ScoreInput, ctx: ScoreContext): { score: number; b
   sScore = Math.min(1, sScore + include.length * 0.05)
 
   const eScore = experienceScore(range, ctx.years, seniority)
-  const lScore = locationScore(job.location, prefs)
+  // A description that says the role is remote counts when you're open to remote.
+  const lScore = Math.max(locationScore(job.location, prefs), jd.details.work_mode === 'remote' && prefs.remote_ok ? 1 : 0)
   const fScore = freshnessScore(job.posted_at || job.first_seen_at, prefs.freshness_days, ctx.now)
   const cScore = job.company_priority === 'high' ? 1 : job.company_priority === 'low' ? 0 : 0.5
 

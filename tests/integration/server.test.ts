@@ -216,10 +216,22 @@ describe('server + worker end to end', { skip: BUILT ? false : 'run `npm run bui
 
   let jobId = 0
   test('companies: scan a careers page; worker fetches the JD; job is scored', async () => {
-    const c = await call<{ id: number }>('POST', '/api/companies', { name: 'MockCo', career_url: `${mockBase}/careers` })
+    // Adding a company queues its first scan; the worker runs it.
+    const c = await call<{ id: number; scan_state: string | null }>('POST', '/api/companies', { name: 'MockCo', career_url: `${mockBase}/careers` })
     assert.equal(c.status, 200)
-    const scan = await call<{ result?: { found: number } }>('POST', `/api/companies/${c.data.id}/scan`)
-    assert.equal(scan.status, 200, JSON.stringify(scan.data))
+    assert.equal(c.data.scan_state, 'queued')
+    // "Scan now" while one is queued doesn't start a second scan.
+    const again = await call<{ queued: boolean; task_id: number }>('POST', `/api/companies/${c.data.id}/scan`)
+    assert.equal(again.status, 200, JSON.stringify(again.data))
+    const done = await until(async () => {
+      const list = (await call<{ id: number; scan_state: string | null; last_status: string | null; next_scan_at: string | null }[]>('GET', '/api/companies')).data
+      const row = list.find((x) => x.id === c.data.id)
+      return row && !row.scan_state && row.last_status ? row : null
+    }, 'scan by worker')
+    assert.equal(done.last_status, 'ok')
+    assert.ok(done.next_scan_at && Date.parse(done.next_scan_at) > Date.now(), 'next scan scheduled')
+    const scans = (await call<{ id: number }[]>('GET', '/api/companies')).data.length
+    assert.equal(scans, 1)
     const all = (await call<{ items: { id: number; title: string }[] }>('GET', '/api/jobs?view=all')).data
     const job = all.items.find((j) => j.title === 'Backend Engineer I')
     assert.ok(job, JSON.stringify(all))
@@ -235,6 +247,7 @@ describe('server + worker end to end', { skip: BUILT ? false : 'run `npm run bui
   })
 
   let sid = 0
+  let uploadedRid = ''
   test('apply: start session, gates explain what is missing', async () => {
     const r = await call<{ session_id: number }>('POST', `/api/jobs/${jobId}/apply`)
     assert.equal(r.status, 200)
@@ -260,6 +273,7 @@ describe('server + worker end to end', { skip: BUILT ? false : 'run `npm run bui
     const up = await fetch(`${API}/api/resumes`, { method: 'POST', headers: { cookie }, body: fd })
     assert.equal(up.status, 200, await up.clone().text())
     const rid = ((await up.json()) as { id: string }).id
+    uploadedRid = rid
 
     const list = await call<{ items: { id: string; exists: boolean }[] }>('GET', `/api/apply/${sid}/resume/use-pdf`)
     assert.ok(list.data.items.some((x) => x.id === rid && x.exists))
@@ -273,6 +287,8 @@ describe('server + worker end to end', { skip: BUILT ? false : 'run `npm run bui
     assert.equal(v.generated_by, 'upload')
     assert.equal(v.status, 'locked')
     assert.equal(d.gates.lock.ok, true, 'no compiler needed for a ready-made PDF')
+    const lockGates = (d as unknown as { lock_gates: Record<number, { ok: boolean }> }).lock_gates
+    assert.equal(lockGates[v.id].ok, true, 'per-version lock check is sent to the page')
     const served = await fetch(`${API}/api/resume/versions/${v.id}/pdf`, { headers: { cookie } })
     assert.equal(served.status, 200)
     assert.equal((await served.arrayBuffer()).byteLength, pdf.length)
@@ -294,8 +310,9 @@ describe('server + worker end to end', { skip: BUILT ? false : 'run `npm run bui
     const vid = gen.data.version_id
     await until(async () => (await call<{ status: string }>('GET', `/api/resume/versions/${vid}`)).data.status === 'awaiting_manual', 'manual AI request')
     const prompt = (await call<{ prompt: string }>('GET', `/api/resume/versions/${vid}/manual`)).data.prompt
-    assert.match(prompt, /CANDIDATE FACTS/)
-    assert.match(prompt, /<job_description>/)
+    assert.match(prompt, /<candidate_facts note=/)
+    assert.match(prompt, /<requirements_coverage>/)
+    assert.match(prompt, /<job_description untrusted="true">/)
 
     const bad = await call('POST', `/api/resume/versions/${vid}/manual`, { answer: 'not json' })
     assert.equal(bad.status, 400)
@@ -357,5 +374,54 @@ describe('server + worker end to end', { skip: BUILT ? false : 'run `npm run bui
     assert.ok(rows.some((r) => r.id === sid))
     const c = await call<{ status: string }>('POST', `/api/apply/${sid}/cancel`)
     assert.equal(c.data.status, 'cancelled')
+  })
+
+  test('“I submitted it myself”: tracked as applied without the robot', async () => {
+    const all = (await call<{ items: { id: number }[] }>('GET', '/api/jobs?view=all')).data
+    const other = all.items.find((j) => j.id !== jobId)
+    assert.ok(other, 'a second job to apply to')
+    const st = await call<{ session_id: number }>('POST', `/api/jobs/${other!.id}/apply`)
+    assert.equal(st.status, 200)
+    const s2 = st.data.session_id
+    // Not allowed before a resume is chosen.
+    assert.equal((await call('POST', `/api/apply/${s2}/confirm`, { submitted: true, self: true })).status, 409)
+    await call('POST', `/api/apply/${s2}/resume/use-pdf`, { resume_id: uploadedRid })
+    const done = await call<{ status: string; stage: string }>('POST', `/api/apply/${s2}/confirm`, { submitted: true, self: true })
+    assert.equal(done.status, 200)
+    assert.equal(done.data.status, 'submitted')
+    assert.equal(done.data.stage, 'applied')
+    const job = (await call<{ state: string }>('GET', `/api/jobs/${other!.id}`)).data
+    assert.equal(job.state, 'applied')
+  })
+
+  test('companies: removing one with applications is refused; pause instead', async () => {
+    const list = (await call<{ id: number; name: string; applications: number }[]>('GET', '/api/companies')).data
+    const mockCo = list.find((c) => c.name === 'MockCo')!
+    assert.ok(mockCo.applications >= 1)
+    const del = await call<{ detail: string }>('DELETE', `/api/companies/${mockCo.id}`)
+    assert.equal(del.status, 409)
+    assert.match(del.data.detail, /Pause scanning instead/)
+    const paused = await call<{ paused: number }>('PATCH', `/api/companies/${mockCo.id}`, { paused: true })
+    assert.equal(paused.data.paused, 1)
+    const scanAll = await call<{ started: number }>('POST', '/api/companies/scan_all')
+    assert.equal(scanAll.data.started, 0, 'paused companies are skipped')
+  })
+
+  test('add a job by link: titled from the page, reuses the company, no duplicates', async () => {
+    const r = await call<{ job_id: number; existing: boolean }>('POST', '/api/jobs/add', { url: `${mockBase}/jobs/555` })
+    assert.equal(r.status, 200, JSON.stringify(r.data))
+    assert.equal(r.data.existing, false)
+    const j = (await call<{ title: string; company_name: string; siblings: { id: number }[] }>('GET', `/api/jobs/${r.data.job_id}`)).data
+    assert.equal(j.title, 'Backend Engineer I')
+    assert.equal(j.company_name, 'MockCo', 'same host as a watched company')
+    assert.ok(j.siblings.length >= 1, 'the scanned posting with the same title is listed as another location')
+    const again = await call<{ job_id: number; existing: boolean }>('POST', '/api/jobs/add', { url: `${mockBase}/jobs/555` })
+    assert.equal(again.data.existing, true)
+    assert.equal(again.data.job_id, r.data.job_id)
+    // The list folds the two postings into one row.
+    const all = (await call<{ items: { title: string; more_locations: number }[] }>('GET', '/api/jobs?view=all')).data
+    const rows = all.items.filter((x) => x.title === 'Backend Engineer I')
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].more_locations, 1)
   })
 })

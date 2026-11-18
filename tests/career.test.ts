@@ -51,6 +51,14 @@ describe('skills dictionary', () => {
     const s = extractSkills('We use k8s, Node.js, C#, .NET Core, REST APIs and Postgres on AWS.')
     for (const k of ['Kubernetes', 'Node.js', 'C#', '.NET', 'REST APIs', 'PostgreSQL', 'AWS']) assert.ok(s.includes(k), k)
   })
+  test('broader dictionary: data, ML, mobile, testing tools', () => {
+    const s = extractSkills('3+ years with Redshift, Tableau and QuickSight; Snowflake data warehouse; Selenium and Cypress; Flutter apps; LangChain RAG with Pinecone; SVM and K-Means models.')
+    for (const k of ['Redshift', 'Tableau', 'QuickSight', 'Data Warehousing', 'Selenium', 'Cypress', 'LangChain', 'Vector Databases', 'Machine Learning']) assert.ok(s.includes(k), k)
+  })
+  test('a skill’s own name must not match plain English', () => {
+    assert.ok(!extractSkills('Facilities agents depend on our tools every day.').includes('AI Agents'))
+    assert.ok(!extractSkills('You will excel at networking with stakeholders.').includes('Excel'))
+  })
   test('ambiguous words need technical context', () => {
     assert.ok(!extractSkills('Let us go to the meeting and rest.').includes('Go'))
     assert.ok(extractSkills('Backend services in Go and Python').includes('Go'))
@@ -83,10 +91,49 @@ describe('JD analysis', () => {
     assert.ok(!a.preferred.includes('Java'))
   })
   test('experience phrasing', () => {
-    assert.deepEqual(parseExperience('3+ years of professional experience'), { min: 3, max: null, text: '3+ years of professional experience' })
+    const e = parseExperience('3+ years of professional experience')!
+    assert.equal(e.min, 3)
+    assert.equal(e.max, null)
+    assert.match(e.text, /^3\+ years of professional experience/)
     assert.equal(parseExperience('at least five years experience')?.min, 5)
     assert.deepEqual(parseExperience('Open to new grads and freshers'), { min: 0, max: 1, text: 'entry level' })
     assert.equal(parseExperience('no requirement listed'), null)
+  })
+  test('experience as real postings write it', () => {
+    const amazon = 'Basic qualifications\n- 3+ years of non-internship professional software development experience\n- 2+ years of non-internship design or architecture experience\nPreferred qualifications\n- 5+ years of full software development life cycle'
+    assert.equal(parseExperience(amazon)?.min, 3, 'the first basic qualification, not a later one or the preferred one')
+    assert.equal(analyzeJd('SDE II', amazon).experience_preferred?.min, 5)
+    const google = 'Minimum qualifications:\nBachelor’s degree or equivalent practical experience.\n2 years of experience with software development in one or more programming languages, or 1 year of experience with an advanced degree.'
+    assert.equal(parseExperience(google)?.min, 2)
+    assert.equal(parseExperience('- 2+ years of Tableau Desktop, Quicksight or other BI tools')?.min, 2, 'no word "experience" needed after a "+"')
+    assert.deepEqual([parseExperience('Experience: 2 to 4 years')?.min, parseExperience('Experience: 2 to 4 years')?.max], [2, 4])
+    assert.equal(parseExperience('Minimum of two years’ experience in Java')?.min, 2)
+    assert.equal(parseExperience('6+ months of internship experience')?.min, 0.5)
+    assert.equal(parseExperience('3 years or more in backend development')?.min, 3)
+    // Not experience requirements.
+    for (const noise of [
+      'Own a multi-year product vision and roadmap.',
+      'We distribute millions of products each year.',
+      'Applicants must be 18 years old.',
+      'A 4-year degree in Computer Science.',
+      'Our company has 20 years of history in retail.',
+      'Customers for years to come.',
+    ]) assert.equal(parseExperience(noise), null, noise)
+  })
+  test('education, job type, work mode, pay, visa', () => {
+    const d = analyzeJd('Software Engineer', "Bachelor's or Master's degree in Computer Science or a related field, or equivalent experience. This is a hybrid role (3 days in office). Compensation: ₹18 - 24 LPA. We are unable to sponsor visas for this position. Immediate joiners preferred.").details
+    assert.equal(d.education?.level, 'bachelors')
+    assert.ok(d.education?.fields.includes('Computer Science'))
+    assert.equal(d.education?.equivalent, true)
+    assert.equal(d.work_mode, 'hybrid')
+    assert.match(d.salary ?? '', /18 - 24 LPA/i)
+    assert.equal(d.visa, 'no-sponsorship')
+    assert.match(d.notice ?? '', /immediate joiners/i)
+    // "non-internship experience" doesn't make an SDE role an internship; the title decides.
+    assert.equal(analyzeJd('Software Development Engineer II', '3+ years of non-internship professional experience').details.employment_type, null)
+    assert.equal(analyzeJd('ML Data Associate (Fixed Term Contract)', '2+ years of previous internship').details.employment_type, 'contract')
+    assert.equal(analyzeJd('Software Engineering Intern', 'Summer 2027').details.employment_type, 'internship')
+    assert.equal(analyzeJd('Backend Engineer', 'This position is fully remote within India.').details.work_mode, 'remote')
   })
   test('seniority from title', () => {
     assert.equal(detectSeniority('Software Engineering Intern'), 'intern')
@@ -557,6 +604,32 @@ describe('answer resolver', () => {
     assert.equal(matchOption('7', ['0-1 years', '1-3 years', '5+ years']), '5+ years')
     assert.equal(matchOption('Decline to self-identify', ['Male', 'Female', 'I don\'t wish to answer']), "I don't wish to answer")
     assert.equal(matchOption('Purple', ['Red', 'Blue']), null)
+  })
+  test('college and company "name" questions are your details, not a person', () => {
+    assert.equal(resolveField(field('College name *'), ctx()).value, 'VIT Chennai')
+    assert.equal(resolveField(field('Name of your university'), ctx()).value, 'VIT Chennai')
+    const co = resolveField(field('Current company name'), ctx({ profile: { ...ctx().profile, current_company: 'Acme Labs' } }))
+    assert.equal(co.value, 'Acme Labs')
+    // Other people's names still aren't filled with yours.
+    for (const q of ["Father's name", 'Reference name', 'Recruiter name', 'Emergency contact name']) {
+      assert.notEqual(resolveField(field(q), ctx()).value, 'Alex Morgan', q)
+    }
+    assert.equal(resolveField(field('Full name'), ctx()).value, 'Alex Morgan')
+  })
+  test('country and phone country code', () => {
+    const country = resolveField(field('Country', { kind: 'select', options: ['Select...', 'India', 'United States'] }), ctx())
+    assert.equal(country.value, 'India')
+    const code = resolveField(field('Phone country code', { kind: 'select', options: ['United States (+1)', 'India (+91)'] }), ctx())
+    assert.equal(code.value, 'India (+91)')
+    assert.equal(resolveField(field('Phone'), ctx()).value, '+91 9000000000')
+  })
+  test('Profile values fill in when Application answers are empty', () => {
+    const a = { ...ANSWERS, notice_period: '', current_ctc: '' }
+    const p = { ...ctx().profile, notice_period: '15 days', current_ctc: '600000' }
+    assert.equal(resolveField(field('What is your notice period?'), ctx({ answers: a, profile: p })).value, '15 days')
+    assert.equal(resolveField(field('Current CTC'), ctx({ answers: a, profile: p })).value, '600000')
+    // Your Application answer still wins.
+    assert.equal(resolveField(field('What is your notice period?'), ctx({ profile: p })).value, '30 days')
   })
   test('helpers', () => {
     assert.ok(tokenSetRatio('Are you authorized to work in India', 'authorized to work in India?') > 0.8)

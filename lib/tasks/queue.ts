@@ -29,7 +29,7 @@ export interface Task<P = Record<string, unknown>> {
 export const LOCK_TIMEOUT_MS = 10 * 60_000
 
 export function laneFor(type: string): Lane {
-  if (type.startsWith('apply.') || type === 'browser.open_profile') return 'browser'
+  if (type.startsWith('apply.') || type.startsWith('browser.')) return 'browser'
   if (type.startsWith('llm.') || type === 'resume.tailor') return 'llm'
   return 'default'
 }
@@ -127,11 +127,15 @@ export async function fail(task: Task, error: string, opts: { retry?: boolean } 
   return 'failed'
 }
 
-/** Put tasks whose worker died back in the queue. */
+/**
+ * Put tasks whose worker died back in the queue. Browser tasks are never
+ * re-run blindly: a fill may be waiting on you, and a submit must not be
+ * clicked twice. They fail and the session is recovered (recoverInterrupted).
+ */
 export async function reclaimStuck(timeoutMs = LOCK_TIMEOUT_MS): Promise<number> {
   const cutoff = new Date(Date.now() - timeoutMs).toISOString()
   return sql.run(
-    "UPDATE tasks SET status = 'queued', locked_by = NULL, updated_at = ? WHERE status = 'running' AND locked_at < ?",
+    "UPDATE tasks SET status = 'queued', locked_by = NULL, updated_at = ? WHERE status = 'running' AND locked_at < ? AND lane != 'browser'",
     [new Date().toISOString(), cutoff],
   )
 }

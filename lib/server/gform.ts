@@ -89,9 +89,13 @@ export const FIELD_RULES: [RegExp, keyof Profile | 'first_name' | 'last_name' | 
 ]
 
 export class GFormError extends Error {
-  constructor(message: string) {
+  /** The form needs a Google account (sign-in, file upload, organisation-only). */
+  needsSignIn: boolean
+
+  constructor(message: string, needsSignIn = false) {
     super(message)
     this.name = 'GFormError'
+    this.needsSignIn = needsSignIn
   }
 }
 
@@ -126,21 +130,21 @@ export async function fetchForm(url: string): Promise<GoogleForm> {
 
   const finalUrl = resp.url || url
   if (finalUrl.includes('accounts.google.com')) {
-    throw new GFormError(
-      "This form requires Google sign-in, so it can't be auto-filled. Open it and apply manually.",
-    )
+    throw new GFormError('This form needs you to be signed in to a Google account.', true)
   }
   if (resp.status === 401 || resp.status === 403) {
-    throw new GFormError(
-      "This form is restricted (Google sign-in / organization-only), so it can't be auto-filled. " +
-        'Open it and apply manually.',
-    )
+    throw new GFormError('This form is restricted to signed-in Google accounts.', true)
   }
   if (resp.status !== 200) {
     throw new GFormError(`Form page returned HTTP ${resp.status}.`)
   }
 
   const html = await resp.text()
+  return parseFormHtml(html, finalUrl)
+}
+
+/** Parse a form page's HTML (fetched directly, or loaded by the signed-in browser). */
+export function parseFormHtml(html: string, finalUrl: string): GoogleForm {
   if (html.includes('no longer accepting responses')) {
     throw new GFormError('This form is no longer accepting responses.')
   }
@@ -216,6 +220,36 @@ export async function fetchForm(url: string): Promise<GoogleForm> {
     page_count: pageCount,
     fields,
   }
+}
+
+/**
+ * The form's own "pre-filled link": opening it shows the form with these
+ * answers already in place (every page), ready to submit. Used by the
+ * signed-in browser path; file uploads are attached on the page itself.
+ */
+export function prefillUrl(form: GoogleForm, answers: FormAnswers): string {
+  const base = form.url.split('?')[0].replace(/\/formResponse$/, '/viewform')
+  const u = new URL(base.endsWith('/viewform') ? base : `${base.replace(/\/+$/, '')}/viewform`)
+  u.searchParams.set('usp', 'pp_url')
+  const byKey = new Map(form.fields.map((f) => [`entry.${f.entry_id}`, f]))
+  for (const [key, value] of Object.entries(answers)) {
+    if (value === null || value === undefined || value === '' || (Array.isArray(value) && !value.length)) continue
+    if (key === 'emailAddress') {
+      u.searchParams.set('emailAddress', String(value))
+      continue
+    }
+    const f = byKey.get(key)
+    if (!f || f.type_code === 13) continue
+    if (f.type_code === 9 && typeof value === 'object' && !Array.isArray(value)) {
+      const d = value as { year?: string; month?: string; day?: string }
+      if (d.year && d.month && d.day) u.searchParams.set(key, `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`)
+    } else if (Array.isArray(value)) {
+      for (const v of value) u.searchParams.append(key, String(v))
+    } else {
+      u.searchParams.set(key, String(value))
+    }
+  }
+  return u.toString()
 }
 
 function matchOption(options: string[], value: string): string | null {

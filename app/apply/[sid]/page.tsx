@@ -39,6 +39,13 @@ const EVENT_TEXT: Record<string, string> = {
   'submit.confirmed': 'Confirmation page detected ✓',
   'submit.confirmed_by_user': 'You confirmed it was submitted',
   'submit.not_confirmed': 'Back to review',
+  'submit.self_reported': 'You submitted it yourself in the browser',
+  'browser.reopened': 'Reopened the browser window',
+  'status.failed': 'Stopped with an error',
+  'status.blocked': 'Waiting for you in the browser window',
+  'status.needs_input': 'Needs your answers',
+  'status.reviewing': 'Ready for your review',
+  'status.unconfirmed': 'Submit not confirmed',
   'stage.changed': 'Stage changed',
   'session.cancelled': 'Cancelled',
   'artifact.added': 'Screenshot',
@@ -135,18 +142,19 @@ export default function ApplyPage({ params }: { params: Promise<{ sid: string }>
   return (
     <div className="wide">
       <PageHeader
-        title={job ? `${job.title}` : `Application #${s.id}`}
+        title={job ? `${job.title}` : d.post?.job_title || `Application #${s.id}`}
         sub={
           <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            {job?.company_name}
-            {s.ats_type && s.ats_type !== 'custom' ? ` · ${s.ats_type}` : ''} <StatusPill status={s.status} />
+            {job?.company_name ?? d.post?.company}
+            {d.post && <span className="muted">from {d.post.channel || 'Telegram'}</span>}
+            {s.ats_type && s.ats_type !== 'custom' ? ` via ${s.ats_type}` : ''} <StatusPill status={s.status} />
           </span>
         }
-        backTo="/jobs"
+        backTo={d.post ? `/applications/${d.post.id}` : '/jobs'}
         actions={
-          job && (
-            <a className="btn sm" href={s.apply_url ?? job.url} target="_blank" rel="noreferrer">
-              Posting ↗
+          (job || s.apply_url) && (
+            <a className="btn sm" href={s.apply_url ?? job?.url} target="_blank" rel="noreferrer">
+              {d.post ? 'Careers page ↗' : 'Posting ↗'}
             </a>
           )
         }
@@ -165,7 +173,7 @@ export default function ApplyPage({ params }: { params: Promise<{ sid: string }>
           <ResumeStudio d={d} reload={reload} />
           {lockedV && (
             <div className="row-actions">
-              <button className="btn primary" onClick={() => setStep('fill')}>Next: fill the application →</button>
+              <button className="btn primary" onClick={() => setStep('fill')}>Continue to the application form</button>
             </div>
           )}
         </>
@@ -175,7 +183,7 @@ export default function ApplyPage({ params }: { params: Promise<{ sid: string }>
         <>
           {!lockedV && (
             <div className="warn-box" style={{ marginBottom: 12 }}>
-              Lock a resume version first. <button className="link-btn" onClick={() => setStep('resume')}>Go to Resume →</button>
+              Lock a resume version first. <button className="link-btn" onClick={() => setStep('resume')}>Go to Resume</button>
             </div>
           )}
           <ReviewPanel d={d} reload={reload} />

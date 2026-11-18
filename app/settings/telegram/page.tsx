@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { useTelegramStatus } from '@/components/AppShell'
 import PageHeader from '@/components/PageHeader'
+import JobGroups from '@/components/settings/JobGroups'
 import {
   Input,
   LoadError,
@@ -14,7 +15,7 @@ import {
 } from '@/components/settings/shared'
 import { useToast } from '@/components/Toast'
 import { api } from '@/lib/api'
-import type { TelegramConfig, TelegramStatus, WatchedChat } from '@/lib/types'
+import type { TelegramConfig, TelegramStatus } from '@/lib/types'
 
 export default function TelegramPage() {
   const { tg, setTg } = useTelegramStatus()
@@ -25,19 +26,8 @@ export default function TelegramPage() {
   const back = useGuardedBack()
   const [code, setCode] = useState('')
   const [password, setPassword] = useState('')
-  const [chats, setChats] = useState<WatchedChat[] | null>(null)
-  const [chatQuery, setChatQuery] = useState('')
   const [busy, setBusy] = useState(false)
   const toast = useToast()
-
-  // A loaded channel list is only meaningful while connected — drop it on
-  // disconnect so the picker and its live checkboxes disappear too.
-  useEffect(() => {
-    if (tg.state !== 'connected') {
-      setChats(null)
-      setChatQuery('')
-    }
-  }, [tg.state])
 
   if (s.loadError) {
     return (
@@ -58,14 +48,6 @@ export default function TelegramPage() {
 
   const t = s.data
 
-  const loadChats = async () => {
-    try {
-      setChats(await api.tgChats())
-    } catch (e) {
-      toast((e as Error).message, 'error')
-    }
-  }
-
   const tgAction = async (fn: () => Promise<TelegramStatus>) => {
     setBusy(true)
     try {
@@ -75,10 +57,9 @@ export default function TelegramPage() {
       setTg(status)
       if (status.state === 'error') toast(status.error || 'Telegram error', 'error')
       if (status.state === 'connected') {
-        toast('Telegram connected — listening for job posts.', 'success')
+        toast('Telegram connected. Add your job groups below.', 'success')
         setCode('')
         setPassword('')
-        void loadChats()
       }
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -88,20 +69,6 @@ export default function TelegramPage() {
   }
 
   const watched = t.watched_chats || []
-  const toggleChat = (chat: WatchedChat) => {
-    const exists = watched.some((c) => String(c.id) === String(chat.id))
-    const next = exists
-      ? watched.filter((c) => String(c.id) !== String(chat.id))
-      : [...watched, chat]
-    // Persisted immediately — update only this key in data + baseline so any
-    // unsaved credential edits keep showing as unsaved.
-    s.markKeySaved('watched_chats', next)
-    api.tgWatch(next).catch((e) => toast((e as Error).message, 'error'))
-  }
-  const visibleChats = (chats || []).filter(
-    (c) => !chatQuery || (c.title || '').toLowerCase().includes(chatQuery.toLowerCase()),
-  )
-
   return (
     <>
       <PageHeader title="Telegram" sub="Where job posts come from" onBack={back} />
@@ -145,10 +112,7 @@ export default function TelegramPage() {
             )}
             {tg.state === 'connected' && (
               <>
-                <span className="success-text">● Connected — listening</span>
-                <button className="btn sm" onClick={loadChats}>
-                  {chats ? 'Refresh channels' : 'Load my channels'}
-                </button>
+                <span className="success-text">Connected, listening for posts</span>
                 <button
                   className="btn sm danger"
                   disabled={busy}
@@ -202,65 +166,14 @@ export default function TelegramPage() {
           )}
         </div>
 
-        <div className="card">
-          <h3>Watched channels</h3>
-          {tg.state !== 'connected' && (
-            <p className="muted" style={{ fontSize: 13 }}>
-              Connect first, then pick the channels that post jobs.
-            </p>
-          )}
-          {tg.state === 'connected' && watched.length === 0 && (
-            <p className="warn-text" style={{ marginBottom: 10 }}>
-              No channels are being watched yet — load your channels and tick the ones with
-              job posts.
-            </p>
-          )}
-          {watched.length > 0 && (
-            <p style={{ fontSize: 13, marginBottom: 4 }} className="muted">
-              Watching {watched.length}:{' '}
-              <span style={{ color: 'var(--text)' }}>
-                {watched.map((c) => c.title).join(', ')}
-              </span>
-            </p>
-          )}
-          {tg.state === 'connected' && !chats && (
-            <div className="row-actions" style={{ marginTop: 10 }}>
-              <button className="btn sm" onClick={loadChats}>
-                Load my channels
-              </button>
-            </div>
-          )}
-          {chats && (
-            <>
-              {chats.length > 6 && (
-                <div className="search-wrap" style={{ marginTop: 12 }}>
-                  <input
-                    placeholder={`Search ${chats.length} channels…`}
-                    value={chatQuery}
-                    onChange={(e) => setChatQuery(e.target.value)}
-                  />
-                </div>
-              )}
-              <div className="chat-list">
-                {visibleChats.length === 0 && (
-                  <p className="muted" style={{ fontSize: 13 }}>
-                    No channels match.
-                  </p>
-                )}
-                {visibleChats.map((c) => (
-                  <label key={c.id}>
-                    <input
-                      type="checkbox"
-                      checked={watched.some((w) => String(w.id) === String(c.id))}
-                      onChange={() => toggleChat(c)}
-                    />
-                    {c.title}
-                  </label>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        <JobGroups
+          connected={tg.state === 'connected'}
+          watched={watched}
+          onWatchedChange={(next) => {
+            s.markKeySaved('watched_chats', next)
+            setTg({ ...tg, watched_chats: next })
+          }}
+        />
 
         <button
           className="btn primary"

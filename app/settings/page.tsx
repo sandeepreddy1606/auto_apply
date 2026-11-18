@@ -20,6 +20,7 @@ import {
 } from '@/components/Icons'
 import { useNavigate } from '@/components/Navigation'
 import PageHeader from '@/components/PageHeader'
+import { ThemeSwitch } from '@/components/Theme'
 import { profileCompleteness } from '@/components/settings/shared'
 import { api } from '@/lib/api'
 import { career } from '@/lib/career-api'
@@ -46,7 +47,7 @@ function Row({
         <div className="hub-title">{title}</div>
         <div className={`hub-sub ${subClass || ''}`}>{sub}</div>
       </div>
-      <ChevronRight style={{ width: 17, height: 17, color: 'var(--dim-2)' }} />
+      <ChevronRight style={{ width: 16, height: 16, color: 'var(--dim-2)' }} />
     </div>
   )
 }
@@ -75,7 +76,7 @@ export default function SettingsHubPage() {
     : health.fail
       ? `${health.fail} item${health.fail > 1 ? 's' : ''} need attention`
       : health.warn
-        ? 'Ready · some suggestions'
+        ? 'Ready, with some suggestions'
         : 'All set'
 
   const p = settings?.profile
@@ -86,7 +87,7 @@ export default function SettingsHubPage() {
     : resumeList.length === 0
       ? 'No resumes uploaded'
       : `${resumeList.length} resume${resumeList.length > 1 ? 's' : ''}${
-          resumeList.some((r) => r.is_default) ? ' · default set' : ' · no default'
+          resumeList.some((r) => r.is_default) ? ', default set' : ', no default chosen'
         }`
   const smtpReady = !!(
     settings?.smtp?.host &&
@@ -107,20 +108,20 @@ export default function SettingsHubPage() {
         sub="Everything the automation needs, one section per page"
       />
 
-      <div className="section" style={{ marginTop: 0 }}>
-        <h3>Career-page applications</h3>
-      </div>
-      <div className="hub-list" style={{ marginBottom: 22 }}>
+      <div className="settings-hub">
+      <div className="hub-group">
+      <h3>Career-page applications</h3>
+      <div className="hub-list">
         <Row
           to="/settings/setup"
-          icon={<HeartbeatIcon style={{ width: 19, height: 19 }} />}
+          icon={<HeartbeatIcon style={{ width: 17, height: 17 }} />}
           title="Setup & health"
           sub={healthSub}
           subClass={health?.fail ? 'warn-text' : health ? 'success-text' : ''}
         />
         <Row
           to="/settings/preferences"
-          icon={<TargetIcon style={{ width: 19, height: 19 }} />}
+          icon={<TargetIcon style={{ width: 17, height: 17 }} />}
           title="Job preferences"
           sub={
             settings
@@ -133,41 +134,41 @@ export default function SettingsHubPage() {
         />
         <Row
           to="/settings/resume"
-          icon={<DocIcon style={{ width: 19, height: 19 }} />}
+          icon={<DocIcon style={{ width: 17, height: 17 }} />}
           title="Resume"
-          sub="Base LaTeX · issues · fact bank · skills · output"
+          sub="Your LaTeX resume, its issues, facts, skills and output"
         />
         <Row
           to="/settings/answers"
-          icon={<FormIcon style={{ width: 19, height: 19 }} />}
+          icon={<FormIcon style={{ width: 17, height: 17 }} />}
           title="Application answers"
-          sub="Work authorization, notice, CTC, EEO · learned answers"
+          sub="Work authorization, notice, pay, EEO and learned answers"
         />
         <Row
           to="/settings/ai"
-          icon={<SparkIcon style={{ width: 19, height: 19 }} />}
+          icon={<SparkIcon style={{ width: 17, height: 17 }} />}
           title="AI"
           sub={settings ? (settings.ai?.provider === 'manual' ? 'Manual copy/paste' : 'Claude Code (your Pro plan)') : '…'}
         />
         <Row
           to="/settings/apply"
-          icon={<BoltIcon style={{ width: 19, height: 19 }} />}
+          icon={<BoltIcon style={{ width: 17, height: 17 }} />}
           title="Apply automation"
           sub={
             settings
-              ? `${settings.apply_automation?.headless ? 'Headless' : 'Visible'} browser · up to ${settings.apply_automation?.daily_cap ?? 20}/day`
+              ? `${settings.apply_automation?.headless ? 'Headless' : 'Visible'} browser, up to ${settings.apply_automation?.daily_cap ?? 20}/day`
               : '…'
           }
         />
       </div>
-
-      <div className="section" style={{ marginTop: 0 }}>
-        <h3>Profile & messaging</h3>
       </div>
+
+      <div className="hub-group">
+      <h3>Profile & messaging</h3>
       <div className="hub-list">
         <Row
           to="/settings/profile"
-          icon={<ListIcon style={{ width: 19, height: 19 }} />}
+          icon={<ListIcon style={{ width: 17, height: 17 }} />}
           title="Profile"
           sub={settings ? `${filled}/${total} fields filled — used for forms & emails` : '…'}
           subClass={settings && filled < 7 ? 'warn-text' : ''}
@@ -175,7 +176,7 @@ export default function SettingsHubPage() {
 
         <Row
           to="/settings/resumes"
-          icon={<DocIcon style={{ width: 19, height: 19 }} />}
+          icon={<DocIcon style={{ width: 17, height: 17 }} />}
           title="Resumes"
           sub={resumeSub}
           subClass={
@@ -187,7 +188,7 @@ export default function SettingsHubPage() {
 
         <Row
           to="/settings/telegram"
-          icon={<SendIcon style={{ width: 19, height: 19 }} />}
+          icon={<SendIcon style={{ width: 17, height: 17 }} />}
           title="Telegram"
           sub={
             tg.state === 'connected'
@@ -199,7 +200,7 @@ export default function SettingsHubPage() {
 
         <Row
           to="/settings/email"
-          icon={<MailIcon style={{ width: 19, height: 19 }} />}
+          icon={<MailIcon style={{ width: 17, height: 17 }} />}
           title="Email sending"
           sub={settings ? (smtpReady ? settings.smtp.username : 'Not configured') : '…'}
           subClass={settings && !smtpReady ? 'warn-text' : ''}
@@ -207,14 +208,14 @@ export default function SettingsHubPage() {
 
         <Row
           to="/settings/template"
-          icon={<FormIcon style={{ width: 19, height: 19 }} />}
+          icon={<FormIcon style={{ width: 17, height: 17 }} />}
           title="Email template"
           sub={settings ? (tplDefault ? 'Default template' : 'Customized') : '…'}
         />
 
         <Row
           to="/settings/automation"
-          icon={<GearIcon style={{ width: 19, height: 19 }} />}
+          icon={<GearIcon style={{ width: 17, height: 17 }} />}
           title="Automation"
           sub={
             settings
@@ -228,10 +229,25 @@ export default function SettingsHubPage() {
 
         <Row
           to="/settings/security"
-          icon={<LockIcon style={{ width: 19, height: 19 }} />}
+          icon={<LockIcon style={{ width: 17, height: 17 }} />}
           title="Account & security"
-          sub="Email · password · devices · sign out"
+          sub="Email, password, devices and signing out"
         />
+      </div>
+      </div>
+
+      <div className="hub-group">
+      <h3>Appearance</h3>
+      <div className="hub-list">
+        <div className="appearance-row">
+          <div>
+            <div className="hub-title">Theme</div>
+            <div className="hub-sub">Match your system, or always light or dark</div>
+          </div>
+          <ThemeSwitch />
+        </div>
+      </div>
+      </div>
       </div>
     </>
   )

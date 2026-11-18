@@ -1,355 +1,319 @@
 'use client'
 
-import { useSearchParams } from 'next/navigation'
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+/**
+ * Companies: the career pages you watch. Each row shows its live scan state,
+ * what it found, when it's scanned next, and what went wrong. Openings
+ * themselves live in Jobs (one list, one definition of "relevant"):
+ * "View jobs" opens it filtered to the company.
+ */
+import { useCallback, useEffect, useState } from 'react'
 
-import CompaniesTabs from '@/components/CompaniesTabs'
-import { ScorePill } from '@/components/career/ui'
-import { CheckIcon, XIcon } from '@/components/Icons'
+import { BuildingIcon, ChevronRight, XIcon } from '@/components/Icons'
 import { useNavigate } from '@/components/Navigation'
 import PageHeader from '@/components/PageHeader'
 import { useToast } from '@/components/Toast'
-import { api } from '@/lib/api'
-import type { Company, CompanyJob, JobState } from '@/lib/types'
+import { api, request } from '@/lib/api'
+import type { CompaniesConfig, Company } from '@/lib/types'
 
-const timeAgo = (iso: string | null): string => {
-  if (!iso) return 'never'
-  const s = (Date.now() - new Date(iso).getTime()) / 1000
-  if (s < 60) return 'just now'
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
-  return `${Math.floor(s / 86400)}d ago`
-}
-
-const VIEWS: [string, string][] = [
-  ['foryou', 'For you'],
-  ['all', 'All'],
-  ['applied', 'Applied'],
-  ['dismissed', 'Dismissed'],
+const INTERVALS: [number, string][] = [
+  [60, 'every hour'],
+  [180, 'every 3 hours'],
+  [360, 'every 6 hours'],
+  [720, 'every 12 hours'],
+  [1440, 'once a day'],
 ]
-const PAGE = 60
 
-const inView = (j: CompanyJob, view: string): boolean => {
-  if (view === 'foryou') return j.matched === 1 && (j.state === 'new' || j.state === 'seen')
-  if (view === 'all') return j.state !== 'dismissed'
-  return j.state === view // applied | dismissed
+function rel(iso: string | null | undefined, future = false): string {
+  if (!iso) return future ? 'soon' : 'never'
+  const d = (Date.parse(iso) - Date.now()) / 1000
+  const s = Math.abs(d)
+  const txt = s < 60 ? 'a moment' : s < 3600 ? `${Math.round(s / 60)}m` : s < 86400 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`
+  if (future) return d <= 0 ? 'soon' : `in ${txt}`
+  return s < 60 ? 'just now' : `${txt} ago`
 }
 
-export default function CompaniesJobsPage() {
-  // useSearchParams needs a Suspense boundary during prerender.
-  return (
-    <Suspense fallback={<p className="muted">Loading…</p>}>
-      <CompaniesJobs />
-    </Suspense>
-  )
+const hostOf = (url: string): string => {
+  try {
+    return new URL(url).host.replace(/^www\./, '')
+  } catch {
+    return url
+  }
 }
 
-function CompaniesJobs() {
+function Status({ c, everyMin }: { c: Company; everyMin: number }) {
+  // Companies scanned before scheduling existed have no stored next time yet.
+  const next = c.next_scan_at ?? (c.last_scanned_at ? new Date(Date.parse(c.last_scanned_at) + everyMin * 60_000).toISOString() : null)
+  if (c.scan_state === 'scanning') return <span className="cstat run"><span className="spin" /> Scanning…</span>
+  if (c.scan_state === 'queued') return <span className="cstat run"><span className="spin" /> Waiting to scan…</span>
+  if (c.paused) return <span className="cstat">Paused, last scanned {rel(c.last_scanned_at)}</span>
+  if (c.last_status === 'error') {
+    return (
+      <span className="cstat bad">
+        Scan failed {rel(c.last_scanned_at)}{(c.fail_count ?? 0) > 1 ? ` (${c.fail_count} times in a row)` : ''}, retrying {rel(next, true)}
+      </span>
+    )
+  }
+  if (c.last_status === 'empty') return <span className="cstat warn">No openings found {rel(c.last_scanned_at)}, next scan {rel(next, true)}</span>
+  if (!c.last_scanned_at) return <span className="cstat">Not scanned yet</span>
+  return <span className="cstat ok">Scanned {rel(c.last_scanned_at)}, next {rel(next, true)}</span>
+}
+
+function CompanyRow({ c, onChanged, everyMin }: { c: Company; onChanged: () => void; everyMin: number }) {
   const navigate = useNavigate()
-  const searchParams = useSearchParams()
-  const initialCompany = searchParams.get('company')
-
-  const [companies, setCompanies] = useState<Company[] | null>(null)
-  // ALL jobs; filtering is client-side & instant
-  const [jobs, setJobs] = useState<CompanyJob[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [view, setView] = useState('foryou')
-  const [companyF, setCompanyF] = useState(initialCompany || 'all')
-  const [locF, setLocF] = useState('')
-  const [q, setQ] = useState('')
-  const [limit, setLimit] = useState(PAGE)
   const toast = useToast()
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(c.name)
+  const [url, setUrl] = useState(c.career_url)
+  const busy = Boolean(c.scan_state)
 
-  const loadCompanies = useCallback(() => {
-    api.listCompanies().then(setCompanies).catch(() => {})
-  }, [])
-
-  const loadJobs = useCallback(() => {
-    setError(null)
-    api
-      .listCompanyJobs({ view: 'everything' })
-      .then(setJobs)
-      .catch((e) => setError((e as Error).message))
-  }, [])
-
-  useEffect(loadCompanies, [loadCompanies])
-  useEffect(loadJobs, [loadJobs])
-  useEffect(() => {
-    setLimit(PAGE)
-  }, [view, companyF, locF, q])
-  // Keep the company filter in sync with the ?company= deep-link.
-  useEffect(() => {
-    setCompanyF(initialCompany || 'all')
-  }, [initialCompany])
-
-  // ----- derived data (all instant, no server round-trips) -----
-
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { foryou: 0, all: 0, applied: 0, dismissed: 0 }
-    for (const j of jobs || []) {
-      for (const [id] of VIEWS) if (inView(j, id)) c[id] += 1
+  const run = async (fn: () => Promise<unknown>, ok?: string) => {
+    try {
+      await fn()
+      if (ok) toast(ok, 'success')
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      onChanged()
     }
-    return c
-  }, [jobs])
+  }
+  const remove = () => {
+    if (!window.confirm(`Remove ${c.name} and its ${c.active_jobs ?? 0} scanned jobs?`)) return
+    void run(() => api.deleteCompany(c.id), `${c.name} removed.`)
+  }
+  const save = () =>
+    run(async () => {
+      await api.updateCompany(c.id, { name, career_url: url })
+      setEditing(false)
+    }, 'Saved.')
 
-  const locations = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const j of jobs || []) {
-      if (j.location) m.set(j.location, (m.get(j.location) || 0) + 1)
-    }
-    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25)
-  }, [jobs])
+  return (
+    <div className="crow">
+      <div className="crow-main">
+        <span className="logo-tile">{c.name.slice(0, 2)}</span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          {editing ? (
+            <div className="grid-2" style={{ gap: 8 }}>
+              <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Company name" />
+              <input value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Careers page URL" />
+            </div>
+          ) : (
+            <>
+              <div className="crow-title">
+                {c.name}
+                {c.ats_type && c.ats_type !== 'custom' && <span className="pill">{c.ats_type}</span>}
+                {c.priority === 'high' && <span className="pill info">High priority</span>}
+                {c.priority === 'low' && <span className="pill">Low priority</span>}
+              </div>
+              <div className="crow-sub">
+                <a href={c.career_url} target="_blank" rel="noreferrer">{hostOf(c.career_url)} ↗</a>&nbsp;&nbsp;<Status c={c} everyMin={everyMin} />
+              </div>
+            </>
+          )}
+          {!editing && c.last_status !== 'ok' && c.last_error && <div className={`crow-err ${c.last_status === 'error' ? 'bad' : 'warn'}`}>{c.last_error}</div>}
+        </div>
+      </div>
 
-  const filtered = useMemo(() => {
-    let list = (jobs || []).filter((j) => inView(j, view))
-    if (companyF !== 'all') list = list.filter((j) => String(j.company_id) === companyF)
-    if (locF) list = list.filter((j) => (j.location || '') === locF)
-    const s = q.trim().toLowerCase()
-    if (s) {
-      list = list.filter((j) =>
-        `${j.title} ${j.company_name} ${j.location || ''}`.toLowerCase().includes(s),
-      )
-    }
-    // "For you": best matches first.
-    if (view === 'foryou') list = [...list].sort((a, b) => (b.match_score ?? -1) - (a.match_score ?? -1))
-    return list
-  }, [jobs, view, companyF, locF, q])
+      {!editing && (
+        <div className="crow-stats">
+          <button className="cnum" onClick={() => navigate(`/jobs?company=${c.id}&view=all`)} title="All open jobs at this company">
+            <b>{c.active_jobs ?? 0}</b> open
+          </button>
+          <button className="cnum" onClick={() => navigate(`/jobs?company=${c.id}`)} title="Jobs relevant to you">
+            <b>{c.matched_jobs ?? 0}</b> relevant
+          </button>
+          {(c.new_jobs ?? 0) > 0 && <span className="pill info">{c.new_jobs} new</span>}
+          {(c.applications ?? 0) > 0 && <span className="pill ok">{c.applications} applied</span>}
+        </div>
+      )}
 
-  const newTotal = useMemo(
-    () => (jobs || []).filter((j) => j.matched === 1 && j.state === 'new').length,
-    [jobs],
+      <div className="crow-actions">
+        {editing ? (
+          <>
+            <button className="btn sm" onClick={() => { setEditing(false); setName(c.name); setUrl(c.career_url) }}>Cancel</button>
+            <button className="btn sm primary" onClick={save}>Save</button>
+          </>
+        ) : (
+          <>
+            <button className="btn sm primary" onClick={() => navigate(`/jobs?company=${c.id}`)}>View jobs <ChevronRight /></button>
+            <button className="btn sm" disabled={busy} onClick={() => run(() => api.scanCompany(c.id))}>{busy ? 'Scanning…' : 'Scan now'}</button>
+            <button className="btn sm" onClick={() => run(() => api.updateCompany(c.id, { paused: !c.paused }), c.paused ? 'Scanning resumed.' : 'Paused — it won’t be scanned automatically.')}>
+              {c.paused ? 'Resume' : 'Pause'}
+            </button>
+            <select
+              aria-label="Priority"
+              value={c.priority ?? 'normal'}
+              onChange={(e) => run(() => api.updateCompany(c.id, { priority: e.target.value }))}
+              style={{ width: 'auto', minHeight: 30, height: 30, fontSize: 12.5, padding: '0 28px 0 10px' }}
+            >
+              <option value="high">High priority</option>
+              <option value="normal">Normal priority</option>
+              <option value="low">Low priority</option>
+            </select>
+            <button className="btn sm ghost" onClick={() => setEditing(true)}>Edit</button>
+            <button className="icon-x" title="Remove company" aria-label={`Remove ${c.name}`} onClick={remove}>
+              <XIcon style={{ width: 14, height: 14 }} />
+            </button>
+          </>
+        )}
+      </div>
+    </div>
   )
-  const hasFilters = companyF !== 'all' || locF || q.trim()
+}
 
-  // ----- actions -----
+export default function CompaniesPage() {
+  const navigate = useNavigate()
+  const toast = useToast()
+  const [companies, setCompanies] = useState<Company[] | null>(null)
+  const [loadErr, setLoadErr] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [url, setUrl] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [cfg, setCfg] = useState<CompaniesConfig | null>(null)
+  const [prefs, setPrefs] = useState<{ roles: string[]; locations: string[] }>({ roles: [], locations: [] })
 
-  const setJobState = async (job: CompanyJob, state: JobState) => {
-    setJobs((js) => (js || []).map((j) => (j.id === job.id ? { ...j, state } : j)))
+  const load = useCallback(() => {
+    api
+      .listCompanies()
+      .then((l) => {
+        setCompanies(l)
+        setLoadErr(null)
+      })
+      .catch((e) => setLoadErr((e as Error).message))
+  }, [])
+  useEffect(load, [load])
+
+  // While anything is queued or scanning, keep the rows live.
+  const active = companies?.some((c) => c.scan_state) ?? false
+  useEffect(() => {
+    const t = setInterval(load, active ? 3000 : 30000)
+    return () => clearInterval(t)
+  }, [active, load])
+
+  useEffect(() => {
+    api
+      .getSettings()
+      .then((s) => {
+        setCfg({ match_keywords: s.companies?.match_keywords || '', scan_interval_minutes: s.companies?.scan_interval_minutes || 180, auto_scan: s.companies?.auto_scan !== false })
+        setPrefs({ roles: s.job_prefs?.target_roles || [], locations: s.job_prefs?.locations || [] })
+      })
+      .catch(() => setCfg({ match_keywords: '', scan_interval_minutes: 180, auto_scan: true }))
+  }, [])
+
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim() || !url.trim()) return toast('Enter the company name and its careers page URL.', 'error')
+    setAdding(true)
     try {
-      await api.patchCompanyJob(job.id, state)
+      const c = await api.addCompany(name.trim(), url.trim())
+      setName('')
+      setUrl('')
+      toast(`${c.name} added — scanning now. Its openings will appear in Jobs.`, 'success')
+      load()
     } catch (err) {
       toast((err as Error).message, 'error')
-      loadJobs()
+    } finally {
+      setAdding(false)
     }
   }
 
-  const markAllSeen = async () => {
-    setJobs((js) => (js || []).map((j) => (j.state === 'new' ? { ...j, state: 'seen' } : j)))
+  const scanAll = async () => {
     try {
-      await api.markCompanyJobsSeen()
-    } catch (err) {
-      toast((err as Error).message, 'error')
-      loadJobs()
+      const r = await api.scanAllCompanies()
+      toast(`Scanning ${r.started} compan${r.started === 1 ? 'y' : 'ies'}…`)
+      load()
+    } catch (e) {
+      toast((e as Error).message, 'error')
     }
   }
 
-  /** Open the job's full details (description, score, Apply) inside the app. */
-  const openJob = (job: CompanyJob) => {
-    if (job.state === 'new') void setJobState(job, 'seen')
-    navigate(`/jobs/${job.id}`)
+  const saveCfg = async () => {
+    if (!cfg) return
+    try {
+      await api.saveSettings({ companies: cfg })
+      toast('Saved.', 'success')
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
   }
+
+  const rescore = async () => {
+    try {
+      await request('/api/jobs/rescore', { method: 'POST' })
+      toast('Re-scoring every job against your preferences and resume…', 'success')
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  const totals = (companies ?? []).reduce((a, c) => ({ open: a.open + (c.active_jobs ?? 0), rel: a.rel + (c.matched_jobs ?? 0), fails: a.fails + (c.last_status === 'error' ? 1 : 0) }), { open: 0, rel: 0, fails: 0 })
 
   return (
     <>
       <PageHeader
         large
         title="Companies"
-        sub="Openings scanned from career pages you watch"
-        actions={
-          jobs?.some((j) => j.state === 'new') ? (
-            <button className="btn sm" onClick={markAllSeen}>
-              Mark all seen
-            </button>
-          ) : null
-        }
+        sub={companies ? `${companies.length} career page${companies.length === 1 ? '' : 's'} with ${totals.open} open jobs, ${totals.rel} relevant to you` : 'Career pages you watch'}
+        actions={companies && companies.length > 0 ? <button className="btn" onClick={scanAll}>Scan all</button> : undefined}
       />
 
       <div className="settings-stack">
-        <CompaniesTabs
-          active="jobs"
-          newCount={newTotal}
-          companiesCount={companies?.length || 0}
-        />
+        <form className="card" onSubmit={add}>
+          <h3><BuildingIcon style={{ width: 17, height: 17 }} /> Watch a careers page</h3>
+          <div className="add-company">
+            <input value={name} placeholder="Company name, e.g. Stripe" onChange={(e) => setName(e.target.value)} aria-label="Company name" />
+            <input value={url} placeholder="Careers page URL, e.g. boards.greenhouse.io/stripe" onChange={(e) => setUrl(e.target.value)} aria-label="Careers page URL" />
+            <button className="btn primary" disabled={adding}>{adding ? <span className="spin" /> : null} Add & scan</button>
+          </div>
+          <p className="muted small" style={{ marginTop: 10 }}>
+            Works with Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee and Workday boards, Amazon, Google and Microsoft careers,
+            and most company job pages. Found a single job instead? <button type="button" className="link-btn" onClick={() => navigate('/jobs')}>Add it by link in Jobs</button>.
+          </p>
+        </form>
+
+        {loadErr && !companies && (
+          <div className="err-box">Couldn’t load companies: {loadErr} <button className="link-btn" onClick={load}>Retry</button></div>
+        )}
+        {!companies && !loadErr && <div className="skeleton" style={{ height: 160 }} />}
+        {companies && companies.length === 0 && (
+          <div className="card empty-state">
+            <span className="es-icon"><BuildingIcon /></span>
+            <b>No companies yet</b>
+            <p>Add a careers page above. It’s scanned now and then on a schedule, and matching openings show up in Jobs.</p>
+          </div>
+        )}
+        {companies && companies.length > 0 && (
+          <div className="company-cards">
+            {totals.fails > 0 && <div className="warn-box">{totals.fails} compan{totals.fails === 1 ? 'y' : 'ies'} failed to scan — see the message on the row. Failed scans retry automatically, waiting longer each time.</div>}
+            {companies.map((c) => <CompanyRow key={c.id} c={c} onChanged={load} everyMin={cfg?.scan_interval_minutes ?? 180} />)}
+          </div>
+        )}
 
         <div className="card">
-          <div className="chips" style={{ paddingBottom: 10 }}>
-            {VIEWS.map(([id, label]) => (
-              <button
-                key={id}
-                className={`chip ${view === id ? 'active' : ''}`}
-                onClick={() => setView(id)}
-              >
-                {label} {counts[id] > 0 && <span className="chip-n">{counts[id]}</span>}
-              </button>
-            ))}
+          <h3>Scanning & matching</h3>
+          <p className="muted small" style={{ marginBottom: 12 }}>
+            Every job is scored against your Job preferences and your resume. Amazon, Google and Microsoft are searched with your target roles and
+            locations{prefs.roles.length ? <> (<b>{prefs.roles.join(', ')}</b>{prefs.locations.length ? <> in {prefs.locations.join(', ')}</> : null})</> : null}.{' '}
+            {!prefs.roles.length && <span className="warn-text">No target roles set — matching uses the titles on your resume. </span>}
+            <button className="link-btn" onClick={() => navigate('/settings/preferences')}>{prefs.roles.length ? 'Change preferences' : 'Set roles & locations'}</button>
+          </p>
+          {cfg && (
+            <div className="grid-2" style={{ alignItems: 'end' }}>
+              <label className="field">
+                <span className="lbl">Scan each company</span>
+                <select value={String(cfg.scan_interval_minutes)} onChange={(e) => setCfg({ ...cfg, scan_interval_minutes: Number(e.target.value) })}>
+                  {INTERVALS.map(([m, label]) => <option key={m} value={String(m)}>{label}</option>)}
+                </select>
+              </label>
+              <label className="toggle" style={{ paddingBottom: 10 }}>
+                <input type="checkbox" checked={cfg.auto_scan} onChange={(e) => setCfg({ ...cfg, auto_scan: e.target.checked })} />
+                <span>Scan automatically in the background</span>
+              </label>
+            </div>
+          )}
+          <div className="row-actions">
+            <button className="btn sm primary" onClick={saveCfg}>Save schedule</button>
+            <button className="btn sm" onClick={rescore} title="No scanning: re-scores the jobs you already have">Re-score all jobs</button>
           </div>
-
-          <div className="filters-row">
-            <input
-              placeholder="Search title, company, location…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-            <div className="filters-selects">
-              <select value={companyF} onChange={(e) => setCompanyF(e.target.value)}>
-                <option value="all">All companies</option>
-                {(companies || []).map((c) => (
-                  <option key={c.id} value={String(c.id)}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <select value={locF} onChange={(e) => setLocF(e.target.value)}>
-                <option value="">Any location</option>
-                {locations.map(([loc, n]) => (
-                  <option key={loc} value={loc}>
-                    {loc} ({n})
-                  </option>
-                ))}
-              </select>
-            </div>
-            {hasFilters && (
-              <button
-                className="btn sm"
-                onClick={() => {
-                  setQ('')
-                  setCompanyF('all')
-                  setLocF('')
-                }}
-              >
-                Clear filters
-              </button>
-            )}
-          </div>
-
-          {error && jobs === null && (
-            <div className="empty" style={{ padding: '30px 10px' }}>
-              <p className="error-text" style={{ marginBottom: 12 }}>
-                Couldn’t load openings: {error}
-              </p>
-              <button className="btn primary" onClick={loadJobs}>
-                Retry
-              </button>
-            </div>
-          )}
-          {jobs === null && !error && <p className="muted">Loading…</p>}
-          {jobs !== null && filtered.length === 0 && (
-            <div className="empty" style={{ padding: '36px 10px' }}>
-              {companies?.length === 0 ? (
-                <>
-                  <p style={{ marginBottom: 14 }}>
-                    You&apos;re not watching any companies yet.
-                  </p>
-                  <button
-                    className="btn primary"
-                    onClick={() => navigate('/companies/manage')}
-                  >
-                    Add your first company
-                  </button>
-                </>
-              ) : hasFilters ? (
-                <p>Nothing matches these filters.</p>
-              ) : view === 'foryou' ? (
-                <>
-                  <p>No matching openings yet.</p>
-                  <p className="muted" style={{ fontSize: 12.5, marginTop: 8 }}>
-                    They appear when a scan finds titles fitting your skills — try
-                    &quot;All&quot;, or widen the keywords in the Watched tab.
-                  </p>
-                </>
-              ) : view === 'applied' ? (
-                <p>Nothing marked applied yet — tick ✓ on a job once you&apos;ve applied.</p>
-              ) : view === 'dismissed' ? (
-                <p>Nothing dismissed.</p>
-              ) : (
-                <p>No jobs scanned yet — run a scan from the Watched tab.</p>
-              )}
-            </div>
-          )}
-
-          {filtered.length > 0 && (
-            <>
-              <div className="job-list">
-                {filtered.slice(0, limit).map((j) => (
-                  <div key={j.id} className={`job-row ${j.state === 'new' ? 'is-new' : ''}`}>
-                    <ScorePill score={j.match_score ?? null} />
-                    <div className="j-body">
-                      <button type="button" className="j-title as-link" onClick={() => openJob(j)} title="View the job details">
-                        {j.title}
-                      </button>
-                      <div className="j-sub">
-                        {j.company_name}
-                        {j.location ? ` · ${j.location}` : ''}
-                        {' · '}
-                        {j.posted_at ? `posted ${timeAgo(j.posted_at)}` : `found ${timeAgo(j.first_seen_at)}`}
-                        {' · '}
-                        <a className="j-ext" href={j.url} target="_blank" rel="noreferrer" title="Open on the company’s site">
-                          {(() => {
-                            try {
-                              return new URL(j.url).host.replace(/^www\./, '')
-                            } catch {
-                              return 'site'
-                            }
-                          })()}{' '}
-                          ↗
-                        </a>
-                        {j.matched === 1 && j.match_reason && (
-                          <>
-                            {' · '}
-                            <span className="j-why">{j.match_reason}</span>
-                          </>
-                        )}
-                        {j.matched === 0 && view !== 'foryou' && j.match_reason && (
-                          <>
-                            {' · '}
-                            <span className="warn-text">{j.match_reason}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    {j.state === 'new' && <span className="badge email">new</span>}
-                    {j.state === 'applied' && <span className="badge applied">applied</span>}
-                    {j.state === 'applied' || j.state === 'dismissed' ? (
-                      <button
-                        className="btn sm"
-                        title="Move back to the list"
-                        onClick={() => setJobState(j, 'seen')}
-                      >
-                        Undo
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          className="icon-check"
-                          title="I applied to this job"
-                          onClick={() => setJobState(j, 'applied')}
-                        >
-                          <CheckIcon style={{ width: 15, height: 15 }} />
-                        </button>
-                        <button
-                          className="icon-x"
-                          title="Dismiss — not interested"
-                          onClick={() => setJobState(j, 'dismissed')}
-                        >
-                          <XIcon style={{ width: 15, height: 15 }} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-              {filtered.length > limit && (
-                <button
-                  className="btn"
-                  style={{ width: '100%', marginTop: 10 }}
-                  onClick={() => setLimit((l) => l + PAGE)}
-                >
-                  Show {Math.min(PAGE, filtered.length - limit)} more of{' '}
-                  {filtered.length - limit}
-                </button>
-              )}
-            </>
-          )}
         </div>
       </div>
     </>

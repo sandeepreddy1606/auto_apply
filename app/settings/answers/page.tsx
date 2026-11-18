@@ -163,7 +163,7 @@ function LearnedTab() {
     <div className="settings-stack">
       <p className="muted small">
         Every answer you type or correct during review is remembered here and reused for the same question next time.
-        {data ? ` ${data.stats.answers} answers · ${data.stats.mappings} learned field mappings.` : ''}
+        {data ? ` ${data.stats.answers} answers and ${data.stats.mappings} learned field mappings.` : ''}
       </p>
       <input type="search" placeholder="Search questions or answers" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="card">
@@ -179,7 +179,7 @@ function LearnedTab() {
         <div className="card" key={e.id} style={{ padding: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
             <b className="small">{e.question_raw}</b>
-            <span className="muted small nowrap">used {e.uses}× · {timeAgo(e.last_used_at || e.created_at)}</span>
+            <span className="muted small nowrap">used {e.uses}×, last {timeAgo(e.last_used_at || e.created_at)}</span>
           </div>
           {e.id in edit ? (
             <>

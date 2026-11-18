@@ -169,7 +169,7 @@ export function playwrightChromiumPath(): string | null {
         : process.platform === 'darwin'
           ? path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright')
           : path.join(os.homedir(), '.cache', 'ms-playwright'))
-    const dirs = fs.readdirSync(base).filter((d) => /^chromium(_headless_shell)?-\d+$/.test(d))
+    const dirs = fs.readdirSync(/*turbopackIgnore: true*/ base).filter((d) => /^chromium(_headless_shell)?-\d+$/.test(d))
     return dirs.length ? path.join(base, dirs.sort().pop()!) : null
   } catch {
     return null

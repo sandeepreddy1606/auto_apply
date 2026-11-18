@@ -1,18 +1,23 @@
 'use client'
 
-import { use, useCallback, useEffect, useState } from 'react'
+import { use, useCallback, useEffect, useRef, useState } from 'react'
 
+import AiFillBar from '@/components/AiFillBar'
 import Bookmarklet from '@/components/Bookmarklet'
+import FormFileChoice from '@/components/FormFileChoice'
+import GoogleSignIn from '@/components/GoogleSignIn'
 import { FormIcon, GearIcon, LinkIcon, ListIcon, MailIcon } from '@/components/Icons'
 import { useNavigate } from '@/components/Navigation'
 import PageHeader from '@/components/PageHeader'
 import QuickFill from '@/components/QuickFill'
 import { useToast } from '@/components/Toast'
 import { api } from '@/lib/api'
+import type { FormFilesView } from '@/lib/api'
 import type {
   Application,
   EmailPreview,
   FormAnswer,
+  FormAnswerMeta,
   FormLoadResult,
 } from '@/lib/types'
 
@@ -97,6 +102,7 @@ export default function ApplicationDetailPage({
   const [formLoading, setFormLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [formMode, setFormMode] = useState<'embed' | 'fields'>('embed')
+  const [files, setFiles] = useState<FormFilesView | null>(null)
 
   const editDraft = (patch: Partial<EmailPreview>) => {
     setEmailEdited(true)
@@ -109,12 +115,45 @@ export default function ApplicationDetailPage({
     return rec
   }, [id])
 
+  // A careers-page run in progress: follow it live.
+  const applyingNow = app?.status === 'applying'
+  useEffect(() => {
+    if (!applyingNow) return
+    const t = setInterval(() => void load().catch(() => {}), 3000)
+    return () => clearInterval(t)
+  }, [applyingNow, load])
+
+  // When a run finishes, show the answers and files it used.
+  const wasApplying = useRef(false)
+  useEffect(() => {
+    if (applyingNow) wasApplying.current = true
+    else if (wasApplying.current) {
+      wasApplying.current = false
+      if (app?.method === 'gform' || app?.form_url) void loadForm({ silent: true })
+    }
+  }, [applyingNow]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const applyOnCareersPage = async () => {
+    if (!app) return
+    setBusy(true)
+    try {
+      const updated = await api.apply(app.id)
+      setApp(updated)
+      toast(updated.status === 'applied' ? 'Applied.' : 'Applying on the careers page — progress shows here.', updated.status === 'applied' ? 'success' : 'info')
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const loadForm = useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
       setFormLoading(true)
       setFormError(null)
       try {
         setFormData(await api.loadForm(id))
+        api.formFiles(id).then(setFiles).catch(() => {})
       } catch (e) {
         setFormError((e as Error).message)
         if (!silent) toast((e as Error).message, 'error')
@@ -192,9 +231,19 @@ export default function ApplicationDetailPage({
     (v: Application[K]) =>
       setApp((a) => (a ? { ...a, [k]: v } : a))
 
+  // Editing an answer makes it yours (and it's remembered for later forms when you apply).
   const setAnswer = (key: string, value: FormAnswer) => {
-    setFormData((fd) => (fd ? { ...fd, answers: { ...fd.answers, [key]: value } } : fd))
+    setFormData((fd) =>
+      fd
+        ? {
+            ...fd,
+            answers: { ...fd.answers, [key]: value },
+            form: { ...fd.form, answer_meta: { ...(fd.form.answer_meta ?? {}), [key]: { source: 'you', note: fd.form.answer_meta?.[key]?.source === 'ai' ? 'edited' : undefined } } },
+          }
+        : fd,
+    )
   }
+  const reloadAfterAi = useCallback(() => void loadForm({ silent: true }), [loadForm])
 
   const sendEmail = async () => {
     if (!emailDraft) return
@@ -222,7 +271,7 @@ export default function ApplicationDetailPage({
 
   const submitForm = async () => {
     if (!formData) return
-    if (!window.confirm('Submit the Google Form with these answers?')) return
+    if (!window.confirm('Apply with these answers? Questions still empty are worked out first (AI included); anything it can’t answer comes back to you.')) return
     setBusy(true)
     try {
       const updated = await api.apply(id, { answers: formData.answers })
@@ -232,6 +281,8 @@ export default function ApplicationDetailPage({
           `${updated.unanswered_required?.length || 'Some'} required question(s) still need an answer.`,
           'error',
         )
+      } else if (updated.status === 'applying') {
+        toast('Applying — this page updates as it goes.', 'info')
       } else {
         toast(
           updated.status === 'applied'
@@ -294,6 +345,10 @@ export default function ApplicationDetailPage({
   }
 
   const applied = app.status === 'applied'
+  // A Google Form that needs a Google account (also posts that failed with the old "sign-in" message).
+  const needsGoogle =
+    app.method === 'gform' &&
+    (Boolean(app.form_schema?.signed_in) || /google account|google sign-in|restricted \(google/i.test(`${app.status_reason ?? ''} ${app.error ?? ''}`))
   const rawLong = (app.raw_text || '').length > 400
 
   // Every way this post can be applied to — a single message may list an email,
@@ -333,6 +388,8 @@ export default function ApplicationDetailPage({
         missingKeys.add(`entry.${f.entry_id}`)
       }
     }
+    // Upload questions: missing when no file will be attached.
+    for (const q of files?.questions ?? []) if (q.required && !q.name) missingKeys.add(q.key)
   }
 
   return (
@@ -345,21 +402,44 @@ export default function ApplicationDetailPage({
 
       <div className="settings-stack">
         <div className="badge-row">
-          <span className={`badge ${app.method}`}>{app.method}</span>
+          <span className={`badge ${app.method}`}>{{ email: 'HR email', gform: 'Google Form', link: 'Careers page', unknown: 'No apply method' }[app.method] ?? app.method}</span>
           <span className={`badge ${app.status}`}>{app.status}</span>
           {app.channel && (
             <span className="muted" style={{ fontSize: 12 }}>
               from {app.channel}
+              {app.posted_at ? `, posted ${new Date(app.posted_at).toLocaleString()}` : ''}
             </span>
           )}
         </div>
 
-        {app.status_reason && (
+        {app.status_reason && !(needsGoogle && !applied) && (
           <p className="muted" style={{ fontSize: 13 }}>
             ℹ {app.status_reason}
           </p>
         )}
-        {app.error && <p className="error-text">⚠ {app.error}</p>}
+        {needsGoogle && !applied ? (
+          <div className="card gform-signin">
+            <div className="card-title">This form needs your Google account</div>
+            <p className="muted small" style={{ margin: '4px 0 12px' }}>
+              1. Sign in to Google once in the automation browser (a window opens; sign in there and close it).
+              2. Press Apply: the form opens signed in, is filled from your profile, gets your resume attached and is submitted.
+            </p>
+            {app.status === 'applying' && <div className="ok-box" style={{ marginBottom: 12 }}><span className="spin" /> {app.status_reason || 'Filling the form…'}</div>}
+            {app.status !== 'applying' && app.status_reason && !/needs your Google account/i.test(app.status_reason) && (
+              <div className="warn-box" style={{ marginBottom: 12 }}>{app.status_reason}</div>
+            )}
+            <div className="row-actions" style={{ marginTop: 0 }}>
+              <GoogleSignIn compact />
+              {app.status !== 'applying' && (
+                <button className="btn primary" disabled={busy} onClick={applyOnCareersPage}>
+                  {busy ? <span className="spin" /> : null} Apply with my Google account
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          app.error && <p className="error-text">⚠ {app.error}</p>
+        )}
         {optionCount > 1 && (
           <p className="muted" style={{ fontSize: 13 }}>
             This post lists{' '}
@@ -370,6 +450,37 @@ export default function ApplicationDetailPage({
               .join(' · ')}
             ).
           </p>
+        )}
+
+        {app.method === 'link' && app.apply_url && (
+          <div className="card careers-card">
+            <h3>
+              <LinkIcon style={{ width: 18, height: 18 }} /> Apply on the careers page
+            </h3>
+            <p className="muted small" style={{ marginBottom: 12 }}>
+              Opens <b style={{ color: 'var(--text)' }}>{(() => { try { return new URL(app.apply_url).hostname.replace(/^www\./, '') } catch { return app.apply_url } })()}</b> in the
+              automation browser, attaches your PDF resume, fills the form from your profile and application answers, and
+              submits when every required answer is filled (Settings → Automation). Sign-ins, CAPTCHAs and consent boxes wait for you.
+            </p>
+            {app.status === 'applying' && (
+              <div className="ok-box" style={{ marginBottom: 12 }}><span className="spin" /> {app.status_reason || 'Applying…'}</div>
+            )}
+            <div className="row-actions" style={{ marginTop: 0 }}>
+              {app.status === 'applied' ? (
+                <span className="ok-text">Applied {app.applied_at ? new Date(app.applied_at).toLocaleString() : ''}</span>
+              ) : app.status !== 'applying' ? (
+                <button className="btn primary" disabled={busy} onClick={applyOnCareersPage}>
+                  {busy ? <span className="spin" /> : null} {app.session_id ? 'Apply again' : 'Apply'}
+                </button>
+              ) : null}
+              {app.session_id && (
+                <button className={`btn ${app.status === 'review' ? 'primary' : ''}`} onClick={() => navigate(`/apply/${app.session_id}`)}>
+                  {app.status === 'review' ? 'Finish in the form review' : 'See the form and screenshots'}
+                </button>
+              )}
+              <a className="btn ghost" href={app.apply_url} target="_blank" rel="noreferrer">Open it yourself ↗</a>
+            </div>
+          </div>
         )}
 
         <div className="card">
@@ -416,7 +527,7 @@ export default function ApplicationDetailPage({
                 >
                   <option value="email">Email</option>
                   <option value="gform">Google Form</option>
-                  <option value="link">External page (open link)</option>
+                  <option value="link">Careers page (filled for you)</option>
                   <option value="unknown">Unknown</option>
                 </select>
               </label>
@@ -523,38 +634,41 @@ export default function ApplicationDetailPage({
             {!formData ? (
               formError ? (
                 <div className="stack">
-                  <p className="warn-text">{formError}</p>
-                  <p className="muted" style={{ fontSize: 12.5 }}>
-                    This form is sign-in-only, so it can’t be filled from here directly.
-                    Open it in your browser (where you’re signed in) and use the one-click
-                    autofill below.
+                  <p className="muted" style={{ fontSize: 13 }}>
+                    This form needs a Google account. Apply fills it in the background — no window opens — signed in
+                    to your account: answers from your profile, saved answers and the AI, the right file in each upload
+                    question, then submits. Anything it can’t answer appears here for you.
                   </p>
+                  <GoogleSignIn />
+                  {app.status === 'applying' && (
+                    <div className="ok-box"><span className="spin" /> {app.status_reason || 'Filling the form…'}</div>
+                  )}
+                  {app.status_reason && app.status !== 'applying' && !applied && (
+                    <div className="warn-box">{app.status_reason}</div>
+                  )}
                   <div className="row-actions" style={{ marginTop: 0 }}>
-                    {app.form_url && (
-                      <a
-                        className="btn primary"
-                        href={app.form_url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Open the form ↗
-                      </a>
-                    )}
-                    {!applied && (
-                      <button className="btn success" onClick={() => setStatus('applied')}>
-                        Mark applied
+                    {!applied && app.status !== 'applying' && (
+                      <button className="btn primary" disabled={busy} onClick={applyOnCareersPage}>
+                        {busy ? <span className="spin" /> : null} Apply with my Google account
                       </button>
                     )}
-                    <button
-                      className="btn"
-                      disabled={formLoading}
-                      onClick={() => loadForm()}
-                    >
-                      {formLoading ? 'Retrying…' : '↻ Try again'}
+                    <button className="btn" onClick={() => api.showFormWindow(app.id).catch((e) => toast((e as Error).message, 'error'))}>
+                      Show the form
                     </button>
+                    {!applied && (
+                      <button className="btn ghost" onClick={() => window.confirm('Mark this post as applied? Do this only if you submitted the form yourself.') && setStatus('applied')}>
+                        I submitted it myself
+                      </button>
+                    )}
+                    {app.form_url && (
+                      <a className="btn ghost" href={app.form_url} target="_blank" rel="noreferrer">Open in my browser ↗</a>
+                    )}
                   </div>
-                  <Bookmarklet />
-                  <QuickFill />
+                  {app.form_schema?.signed_in && (
+                    <button className="link-btn small" disabled={formLoading} onClick={() => loadForm()}>
+                      Show the questions it read, to answer the ones it couldn’t
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="row-actions" style={{ marginTop: 0 }}>
@@ -628,18 +742,28 @@ export default function ApplicationDetailPage({
                 )}
                 {formMode === 'fields' && (
                   <div className="stack">
+                    {!applied && (
+                      <AiFillBar
+                        appId={id}
+                        answers={formData.answers}
+                        missing={missingKeys.size}
+                        aiCount={Object.values(formData.form.answer_meta ?? {}).filter((m) => m.source === 'ai').length}
+                        disabled={app.status === 'applying'}
+                        onDone={reloadAfterAi}
+                      />
+                    )}
                     {missingKeys.size > 0 ? (
                       <p className="warn-text">
                         ✎ {missingKeys.size} required question
                         {missingKeys.size > 1 ? 's' : ''} still need
-                        {missingKeys.size > 1 ? '' : 's'} an answer — the rest are
-                        pre-filled from your profile. Complete the highlighted field
-                        {missingKeys.size > 1 ? 's' : ''}, then submit.
+                        {missingKeys.size > 1 ? '' : 's'} your answer. Fill the highlighted
+                        {missingKeys.size > 1 ? ' ones' : ' one'} and press Apply — your answers are
+                        remembered and reused on later forms.
                       </p>
                     ) : (
                       <p className="success-text">
-                        ✓ Everything required is filled from your profile — ready to
-                        submit.
+                        ✓ Everything required has an answer. Each answer shows where it came from — check
+                        the ones marked “AI”, then apply.
                       </p>
                     )}
                     {formData.form.collects_email && (
@@ -647,7 +771,7 @@ export default function ApplicationDetailPage({
                         className={`question ${missingKeys.has('emailAddress') ? 'missing' : ''}`}
                       >
                         <div className="q-title">
-                          Your email (collected by form) <span className="req">*</span>
+                          Your email (collected by form) <span className="q-req">*</span>
                         </div>
                         <input
                           value={String(formData.answers.emailAddress || '')}
@@ -661,18 +785,24 @@ export default function ApplicationDetailPage({
                       return (
                         <div
                           key={key}
-                          className={`question ${f.supported ? '' : 'unsupported'} ${missingKeys.has(key) ? 'missing' : ''}`}
+                          className={`question ${f.supported || f.type === 'file_upload' ? '' : 'unsupported'} ${missingKeys.has(key) ? 'missing' : ''}`}
                         >
                           <div className="q-title">
-                            {f.title} {f.required && <span className="req">*</span>}
+                            {f.title} {f.required && <span className="q-req">*</span>}
+                            <AnswerSource meta={formData.form.answer_meta?.[key]} empty={isEmptyAns(val)} />
                           </div>
                           {f.description && <div className="q-meta">{f.description}</div>}
-                          {!f.supported && (
-                            <div className="error-text">
-                              {f.type === 'file_upload'
-                                ? 'File upload — cannot be automated (requires Google sign-in). Submit this form manually.'
-                                : `Unsupported question type (${f.type}). Submit this form manually.`}
-                            </div>
+                          {missingKeys.has(key) && formData.form.missing_notes?.[key] && (
+                            <div className="q-meta" style={{ color: 'var(--amber)' }}>{formData.form.missing_notes[key]}</div>
+                          )}
+                          {f.type === 'file_upload' &&
+                            (files ? (
+                              <FormFileChoice appId={id} entry={key} view={files} onChange={setFiles} disabled={applied || app.status === 'applying'} />
+                            ) : (
+                              <div className="q-meta">Loading your files…</div>
+                            ))}
+                          {!f.supported && f.type !== 'file_upload' && (
+                            <div className="error-text">Unsupported question type ({f.type}). Submit this form manually.</div>
                           )}
                           {f.supported &&
                             (f.type === 'short_answer' || f.type === 'paragraph') &&
@@ -753,26 +883,26 @@ export default function ApplicationDetailPage({
                     <div className="row-actions" style={{ marginTop: 0 }}>
                       <button
                         className="btn success"
-                        disabled={busy || applied}
+                        disabled={busy || applied || app.status === 'applying'}
                         onClick={submitForm}
                       >
-                        {busy ? 'Submitting…' : applied ? 'Already applied' : '✓ Submit form'}
+                        {app.status === 'applying' ? <><span className="spin" /> Applying…</> : busy ? 'Sending…' : applied ? 'Already applied' : '✓ Apply with these answers'}
                       </button>
+                      <button className="btn" onClick={() => api.showFormWindow(app.id).then(() => toast('Opening the form with your answers filled in…', 'info')).catch((e) => toast((e as Error).message, 'error'))}>
+                        Show the form
+                      </button>
+                      {!applied && (
+                        <button className="btn ghost" onClick={() => window.confirm('Mark this post as applied? Do this only if you submitted the form yourself.') && setStatus('applied')}>
+                          I submitted it myself
+                        </button>
+                      )}
                       <button
-                        className="btn"
+                        className="btn ghost"
                         onClick={() => loadForm()}
                         disabled={formLoading}
                       >
-                        ↻ Re-fetch / re-fill
+                        ↻ Re-read the form
                       </button>
-                      <a
-                        className="btn"
-                        href={app.form_url ?? undefined}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Open form ↗
-                      </a>
                     </div>
                   </div>
                 )}
@@ -845,5 +975,28 @@ export default function ApplicationDetailPage({
         </div>
       </div>
     </>
+  )
+}
+
+const SOURCE_LABEL: Record<string, string> = {
+  you: 'You',
+  profile: 'Profile',
+  answers: 'Your settings',
+  learned: 'Saved answer',
+  ai: 'AI-generated',
+}
+
+/** Where an answer came from — so you know which ones to check. */
+function AnswerSource({ meta, empty }: { meta?: FormAnswerMeta; empty: boolean }) {
+  if (!meta || empty) return null
+  const judged = meta.source === 'ai' && meta.basis === 'inferred'
+  const title = meta.source === 'ai'
+    ? meta.basis === 'fact' ? 'Taken from your resume or profile by the AI' : meta.basis === 'preference' ? 'From your preferences' : 'The AI’s judgement — check it'
+    : meta.note || undefined
+  const label = meta.source === 'you' && meta.note === 'edited' ? 'AI-generated · edited by you' : SOURCE_LABEL[meta.source] ?? meta.source
+  return (
+    <span className={`pill ${meta.source === 'you' ? 'ok' : judged ? 'warn' : 'info'}`} style={{ marginLeft: 8, fontSize: 11, verticalAlign: 'middle' }} title={title}>
+      {label}{judged ? ' — check' : ''}
+    </span>
   )
 }

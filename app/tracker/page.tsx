@@ -55,11 +55,11 @@ export default function TrackerPage() {
       <PageHeader large title="Applications" sub="Career-page applications: in progress and after you applied" />
       {err && <div className="err-box">{err}</div>}
 
-      <div className="breakdown" style={{ marginTop: 0 }}>
-        <div><b>Submitted</b><span className="big-num">{stats.submitted}</span></div>
-        <div><b>This week</b><span className="big-num">{stats.week}</span></div>
-        <div><b>Response rate</b><span className="big-num">{stats.responseRate}%</span></div>
-        <div><b>Interviews</b><span className="big-num">{stats.interviews}</span></div>
+      <div className="kpis">
+        <div className="card kpi" style={{ cursor: 'default' }}><div className="k-label">Submitted</div><div className="k-value">{stats.submitted}</div></div>
+        <div className="card kpi" style={{ cursor: 'default' }}><div className="k-label">This week</div><div className="k-value">{stats.week}</div></div>
+        <div className="card kpi" style={{ cursor: 'default' }}><div className="k-label">Response rate</div><div className="k-value">{stats.responseRate}%</div></div>
+        <div className="card kpi" style={{ cursor: 'default' }}><div className="k-label">Interviews</div><div className="k-value">{stats.interviews}</div></div>
       </div>
 
       <div className="section">
@@ -67,7 +67,7 @@ export default function TrackerPage() {
         {!rows && <div className="skeleton" />}
         {rows && inProgress.length === 0 && (
           <p className="muted small">
-            Nothing in progress. <button className="link-btn" onClick={() => navigate('/jobs')}>Find a job →</button>
+            Nothing in progress. <button className="link-btn" onClick={() => navigate('/jobs')}>Find a job</button>
           </p>
         )}
         <div className="job-cards">
@@ -75,7 +75,7 @@ export default function TrackerPage() {
             <div key={r.id} className="job-card" style={{ gridTemplateColumns: '1fr auto' }} onClick={() => navigate(`/apply/${r.id}`)}>
               <div style={{ minWidth: 0 }}>
                 <div className="jc-title">{r.job_title}</div>
-                <div className="jc-meta">{r.company_name} · started {timeAgo(r.started_at)}</div>
+                <div className="jc-meta">{r.company_name}, started {timeAgo(r.started_at)}</div>
                 {r.error && <div className="jc-why truncate">{r.error}</div>}
               </div>
               <div style={{ display: 'flex', gap: 6, flexDirection: 'column', alignItems: 'flex-end' }}>
@@ -99,9 +99,9 @@ export default function TrackerPage() {
               {byStage[st].map((r) => (
                 <div key={r.id} className="kcard">
                   <div className="t" onClick={() => navigate(`/apply/${r.id}`)}>{r.job_title}</div>
-                  <div className="c">{r.company_name} · {timeAgo(r.submitted_at)}</div>
+                  <div className="c">{r.company_name}, {timeAgo(r.submitted_at)}</div>
                   <select value={r.stage ?? 'applied'} onChange={(e) => move(r, e.target.value as AppStage)} aria-label="Move to stage">
-                    {STAGES.map((x) => <option key={x} value={x}>{x}</option>)}
+                    {STAGES.map((x) => <option key={x} value={x}>{x[0].toUpperCase() + x.slice(1)}</option>)}
                   </select>
                 </div>
               ))}

@@ -18,6 +18,7 @@ function toSession(r: Record<string, unknown>): ApplySession {
   return {
     id: Number(r.id),
     job_id: Number(r.job_id),
+    post_id: r.post_id == null ? null : Number(r.post_id),
     resume_version_id: r.resume_version_id == null ? null : Number(r.resume_version_id),
     status: String(r.status) as SessionStatus,
     ats_type: (r.ats_type as string) ?? null,
@@ -35,14 +36,16 @@ function toSession(r: Record<string, unknown>): ApplySession {
 }
 
 export async function createSession(fields: {
+  /** The scanned job, or 0 for a Telegram post's run (then post_id is set). */
   job_id: number
+  post_id?: number | null
   ats_type: string | null
   apply_url: string
   jd_snapshot: string | null
 }): Promise<number> {
   const id = await sql.insert(
-    "INSERT INTO apply_sessions (job_id, status, ats_type, apply_url, jd_snapshot, started_at, updated_at) VALUES (?, 'created', ?, ?, ?, ?, ?)",
-    [fields.job_id, fields.ats_type, fields.apply_url, fields.jd_snapshot, now(), now()],
+    "INSERT INTO apply_sessions (job_id, post_id, status, ats_type, apply_url, jd_snapshot, started_at, updated_at) VALUES (?, ?, 'created', ?, ?, ?, ?, ?)",
+    [fields.job_id, fields.post_id ?? null, fields.ats_type, fields.apply_url, fields.jd_snapshot, now(), now()],
   )
   await addEvent(id, 'session.created', 'user', { apply_url: fields.apply_url })
   return id
@@ -57,15 +60,17 @@ export async function getSession(id: number): Promise<ApplySession | null> {
 const TRANSITIONS: Record<SessionStatus, SessionStatus[]> = {
   created: ['resume_drafting', 'resume_ready', 'cancelled'],
   resume_drafting: ['resume_drafting', 'resume_ready', 'cancelled', 'failed'],
-  resume_ready: ['resume_drafting', 'filling', 'cancelled'],
+  resume_ready: ['resume_drafting', 'resume_ready', 'filling', 'cancelled', 'submitted'],
   filling: ['reviewing', 'needs_input', 'blocked', 'failed', 'cancelled', 'filling'],
-  needs_input: ['reviewing', 'needs_input', 'filling', 'cancelled', 'resume_drafting', 'failed'],
-  reviewing: ['reviewing', 'needs_input', 'submitting', 'filling', 'cancelled', 'resume_drafting', 'failed'],
-  blocked: ['filling', 'reviewing', 'needs_input', 'cancelled', 'failed'],
+  // Changing the resume after a fill goes back to resume_ready; "I submitted it
+  // myself" (in the browser window) goes straight to submitted.
+  needs_input: ['reviewing', 'needs_input', 'filling', 'cancelled', 'resume_drafting', 'resume_ready', 'failed', 'submitted'],
+  reviewing: ['reviewing', 'needs_input', 'submitting', 'filling', 'cancelled', 'resume_drafting', 'resume_ready', 'failed', 'submitted'],
+  blocked: ['filling', 'reviewing', 'needs_input', 'cancelled', 'failed', 'resume_drafting', 'resume_ready', 'submitted'],
   submitting: ['submitted', 'unconfirmed', 'failed', 'reviewing', 'needs_input'],
   unconfirmed: ['submitted', 'reviewing', 'cancelled'],
   submitted: [],
-  failed: ['filling', 'resume_drafting', 'resume_ready', 'cancelled'],
+  failed: ['filling', 'resume_drafting', 'resume_ready', 'cancelled', 'submitted'],
   cancelled: [],
 }
 
@@ -104,7 +109,42 @@ export async function setStatus(
   }
   await sql.run(`UPDATE apply_sessions SET ${sets.join(', ')} WHERE id = ?`, [...vals, id])
   await addEvent(id, event?.type ?? `status.${to}`, event?.actor ?? 'system', { from: s.status, to, ...(event?.data ?? {}), ...(extra.error ? { error: extra.error } : {}) })
-  return (await getSession(id))!
+  const next = (await getSession(id))!
+  if (next.post_id) await mirrorToPost(next)
+  return next
+}
+
+/** What a Telegram post shows while its careers-page run goes through each stage. */
+const POST_STATE: Record<SessionStatus, [string, string | null]> = {
+  created: ['applying', 'Getting ready…'],
+  resume_drafting: ['applying', 'Preparing your resume…'],
+  resume_ready: ['applying', 'Opening the careers page…'],
+  filling: ['applying', 'Filling the application form…'],
+  submitting: ['applying', 'Submitting…'],
+  reviewing: ['review', 'Form filled — open it to check and submit.'],
+  needs_input: ['review', 'Some questions need your answer — open it to finish.'],
+  blocked: ['review', null],
+  unconfirmed: ['review', 'Submitted, but no confirmation page appeared — open it and say whether it went through.'],
+  failed: ['failed', null],
+  submitted: ['applied', null],
+  cancelled: ['review', 'Stopped. Press Apply to try again.'],
+}
+
+/** Copy a run's progress onto its Telegram post (status, reason, applied time). */
+export async function mirrorToPost(s: ApplySession): Promise<void> {
+  if (!s.post_id) return
+  const [status, reason] = POST_STATE[s.status] ?? ['review', null]
+  const why = reason ?? s.error ?? null
+  if (status === 'applied') {
+    await sql.run("UPDATE applications SET status = 'applied', applied_at = ?, status_reason = NULL, error = NULL WHERE id = ?", [s.submitted_at ?? now(), s.post_id])
+  } else {
+    await sql.run('UPDATE applications SET status = ?, status_reason = ?, error = ? WHERE id = ?', [
+      status,
+      why,
+      status === 'failed' ? s.error : null,
+      s.post_id,
+    ])
+  }
 }
 
 export async function savePlan(id: number, plan: FillPlan): Promise<void> {
@@ -198,4 +238,28 @@ export async function recentForCompany(companyId: number, days: number, excludeJ
     [companyId, cutoff, excludeJob],
   )
   return rows.map((r) => ({ job_title: String(r.job_title), submitted_at: String(r.submitted_at) }))
+}
+
+/**
+ * Sessions left mid-step by a worker that stopped (crash, restart, closed
+ * terminal). Without this they stay "filling"/"submitting" forever and every
+ * button says "Already working on it…". A submit that was cut off may or may
+ * not have gone through, so it becomes "unconfirmed" — never re-clicked.
+ */
+export async function recoverInterrupted(): Promise<number> {
+  const rows = await sql.all(
+    `SELECT s.id, s.status FROM apply_sessions s WHERE s.status IN ('filling', 'submitting')
+     AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.lane = 'browser' AND t.status IN ('queued', 'running')
+       AND (t.payload LIKE '%"session_id":' || s.id || '}%' OR t.payload LIKE '%"session_id":' || s.id || ',%'))`,
+  )
+  for (const r of rows) {
+    const id = Number(r.id)
+    const submitting = String(r.status) === 'submitting'
+    await setStatus(id, submitting ? 'unconfirmed' : 'failed', {
+      error: submitting
+        ? 'The app stopped while submitting. Check the company site or your email: did it go through?'
+        : 'The app stopped while filling the form. Press “Re-fill from the start”.',
+    }).catch(() => {})
+  }
+  return rows.length
 }

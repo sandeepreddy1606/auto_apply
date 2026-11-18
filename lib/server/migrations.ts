@@ -273,6 +273,80 @@ const MIGRATIONS: { id: number; name: string; up: (ctx: Ctx) => Promise<void> }[
       await d.run('CREATE INDEX IF NOT EXISTS idx_auth_codes_user ON auth_codes(user_id, purpose)')
     },
   },
+  {
+    id: 7,
+    name: 'companies: pause, scan scheduling and backoff',
+    async up({ d }) {
+      // paused: never scanned automatically; fail_count drives backoff;
+      // next_scan_at is when the scheduler queues it next; scan_state is
+      // 'queued' | 'scanning' | NULL so the page can show progress.
+      for (const col of ['paused INTEGER NOT NULL DEFAULT 0', 'fail_count INTEGER NOT NULL DEFAULT 0', 'next_scan_at TEXT', 'scan_state TEXT']) {
+        try {
+          await d.run(`ALTER TABLE companies ADD COLUMN ${col}`)
+        } catch {
+          /* column exists (re-run) */
+        }
+      }
+      try {
+        await d.run('CREATE INDEX IF NOT EXISTS idx_company_jobs_title ON company_jobs(company_id, title)')
+      } catch {
+        /* optional */
+      }
+    },
+  },
+  {
+    id: 8,
+    name: 'jobs: filterable details read from each description',
+    async up({ d }) {
+      // Written when a job is scored (lib/jobs/store.ts rescoreJobs), so the
+      // Jobs filters are plain column lookups.
+      for (const col of [
+        'exp_min REAL', 'exp_max REAL', 'work_mode TEXT', 'employment_type TEXT', 'seniority TEXT',
+        'edu_level TEXT', 'skills TEXT', 'city TEXT', 'country TEXT', 'has_salary INTEGER', 'visa TEXT',
+      ]) {
+        try {
+          await d.run(`ALTER TABLE company_jobs ADD COLUMN ${col}`)
+        } catch {
+          /* column exists (re-run) */
+        }
+      }
+    },
+  },
+  {
+    id: 9,
+    name: 'telegram posts: message origin and career-page apply runs',
+    async up({ d }) {
+      // A Telegram post keeps where it came from (group, message, when it was
+      // posted) and, for career-page links, the browser run that applies it.
+      // That run is an apply_sessions row tied to the post (post_id) instead of
+      // a scanned job, so Telegram jobs never show up in the career-page lists.
+      const add = async (table: string, col: string) => {
+        try {
+          await d.run(`ALTER TABLE ${table} ADD COLUMN ${col}`)
+        } catch {
+          /* column exists (re-run) */
+        }
+      }
+      for (const col of ['posted_at TEXT', 'tg_chat_id TEXT', 'tg_message_id INTEGER', 'session_id INTEGER']) await add('applications', col)
+      await add('apply_sessions', 'post_id INTEGER')
+      try {
+        await d.run('CREATE INDEX IF NOT EXISTS idx_apply_sessions_post ON apply_sessions(post_id)')
+      } catch {
+        /* optional */
+      }
+    },
+  },
+  {
+    id: 10,
+    name: 'telegram posts: which file goes into each Google Form upload question',
+    async up({ d }) {
+      try {
+        await d.run('ALTER TABLE applications ADD COLUMN form_files TEXT')
+      } catch {
+        /* column exists (re-run) */
+      }
+    },
+  },
 ]
 
 export async function runMigrations(d: MigrationDriver, pg: boolean): Promise<number[]> {

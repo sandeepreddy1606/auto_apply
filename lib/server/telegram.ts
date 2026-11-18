@@ -14,14 +14,56 @@
  */
 import fs from 'node:fs'
 
-import type { TelegramStatus, WatchedChat } from '@/lib/types'
+import type { ChatSync, TelegramStatus, WatchedChat } from '@/lib/types'
 
 import { TELEGRAM_SESSION_PATH } from './paths'
 import * as settingsStore from './settings'
+import { messageText } from './telegram-text'
+import type { TgMessageLike } from './telegram-text'
 
 const log = (...args: unknown[]) => console.log('[autoapply.telegram]', ...args)
 
-type IngestFn = (text: string, channel: string) => Promise<void>
+/** Where a post came from; `live` is false for history fetched after the fact. */
+export interface PostMeta {
+  chatId: string
+  messageId: number | null
+  postedAt: string | null
+  live: boolean
+}
+
+/** Stores one message; returns how many new posts it created. */
+type IngestFn = (text: string, channel: string, meta: PostMeta) => Promise<number>
+
+type TgMessage = TgMessageLike & { id?: number; date?: number }
+
+interface DialogLike {
+  isChannel?: boolean
+  isGroup?: boolean
+  title?: string
+  id?: { toString(): string }
+  entity?: { username?: string | null; megagroup?: boolean; broadcast?: boolean } & Record<string, unknown>
+}
+
+const SYNC_KEY = (chatId: string) => `tg.sync:${chatId}`
+const MAX_HISTORY = 400
+
+async function readSync(chatId: string): Promise<ChatSync | null> {
+  const { kvGet } = await import('@/lib/tasks/queue')
+  return (await kvGet<ChatSync>(SYNC_KEY(chatId)))?.value ?? null
+}
+
+async function writeSync(chatId: string, patch: Partial<ChatSync>): Promise<void> {
+  const { kvSet } = await import('@/lib/tasks/queue')
+  const cur = (await readSync(chatId)) ?? { last_message_id: 0, last_fetch_at: null, last_fetch_found: 0, last_fetch_new: 0, error: null }
+  await kvSet(SYNC_KEY(chatId), { ...cur, ...patch, last_message_id: Math.max(cur.last_message_id, patch.last_message_id ?? 0) })
+}
+
+/** Sync state for every watched group (for Settings → Telegram). */
+export async function chatSyncs(): Promise<Record<string, ChatSync | null>> {
+  const out: Record<string, ChatSync | null> = {}
+  for (const c of settingsStore.load().telegram.watched_chats || []) out[c.id] = await readSync(String(c.id))
+  return out
+}
 
 interface Deferred<T> {
   promise: Promise<T>
@@ -60,6 +102,7 @@ type AnyClient = {
   isUserAuthorized(): Promise<boolean>
   signInUser(creds: { apiId: number; apiHash: string }, params: unknown): Promise<unknown>
   getDialogs(params?: unknown): Promise<unknown[]>
+  getMessages(entity: unknown, params?: unknown): Promise<unknown[]>
   addEventHandler(cb: (event: unknown) => unknown, filter?: unknown): void
   session: { save(): string }
 }
@@ -114,6 +157,8 @@ class TelegramManager {
   #codeDeferred: Deferred<string> | null = null
   #passwordDeferred: Deferred<string> | null = null
   #settleWaiters: (() => void)[] = []
+  #catchUpTimer: ReturnType<typeof setInterval> | null = null
+  #fetching = new Set<string>()
 
   setIngestCallback(cb: IngestFn): void {
     this.#ingest = cb
@@ -270,6 +315,15 @@ class TelegramManager {
     this.#registerHandler()
     this.#setState('connected')
     log('Telegram connected, listener active')
+    // Pick up what was posted while the app was off, then keep checking in
+    // case the connection dropped silently for a while.
+    void this.catchUp().catch((e) => log('catch-up failed:', errMessage(e)))
+    if (!this.#catchUpTimer) {
+      this.#catchUpTimer = setInterval(() => {
+        if (this.state === 'connected') void this.catchUp().catch(() => {})
+      }, 15 * 60_000)
+      if (typeof this.#catchUpTimer.unref === 'function') this.#catchUpTimer.unref()
+    }
   }
 
   #registerHandler(): void {
@@ -285,13 +339,14 @@ class TelegramManager {
 
           const ev = event as {
             chatId?: { toString(): string }
-            message?: { message?: string }
+            message?: TgMessage
             getChat?: () => Promise<unknown>
           }
           const chatId = ev.chatId ? String(ev.chatId) : ''
           if (!watchedIds.has(chatId)) return
 
-          const text = ev.message?.message || ''
+          // Includes links hidden behind words and URL buttons.
+          const text = ev.message ? messageText(ev.message) : ''
           if (!text.trim()) return
 
           let title = chatId
@@ -303,7 +358,16 @@ class TelegramManager {
           } catch {
             /* fall back to the raw id */
           }
-          if (this.#ingest) await this.#ingest(text, title)
+          const messageId = typeof ev.message?.id === 'number' ? ev.message.id : null
+          if (this.#ingest) {
+            await this.#ingest(text, title, {
+              chatId,
+              messageId,
+              postedAt: ev.message?.date ? new Date(ev.message.date * 1000).toISOString() : new Date().toISOString(),
+              live: true,
+            })
+          }
+          if (messageId) await writeSync(chatId, { last_message_id: messageId })
         } catch (e) {
           console.error(
             '[autoapply.telegram] Failed handling incoming telegram message:',
@@ -315,24 +379,108 @@ class TelegramManager {
     })
   }
 
-  async listChats(): Promise<WatchedChat[]> {
+  async #dialogs(): Promise<DialogLike[]> {
     const client = await this.#ensureClient()
     if (!(await client.isUserAuthorized())) {
-      throw new Error('Telegram is not connected yet.')
+      throw new Error('Telegram is not connected yet. Connect it in Settings → Telegram first.')
     }
-    const dialogs = (await client.getDialogs({ limit: 300 })) as {
-      isChannel?: boolean
-      isGroup?: boolean
-      title?: string
-      id?: { toString(): string }
-    }[]
-    const chats: WatchedChat[] = []
+    return (await client.getDialogs({ limit: 500 })) as DialogLike[]
+  }
+
+  /**
+   * Your groups and channels, optionally narrowed by name. Matching ignores
+   * case, emoji and punctuation, accepts @username and t.me/… links, and puts
+   * exact and starts-with matches first.
+   */
+  async listChats(query = ''): Promise<WatchedChat[]> {
+    const dialogs = await this.#dialogs()
+    const fold = (x: string) => x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+    const q = fold(query.replace(/^(https?:\/\/)?(t\.me|telegram\.me)\//i, '').replace(/^@/, ''))
+    const chats: (WatchedChat & { rank: number })[] = []
     for (const d of dialogs) {
-      if ((d.isChannel || d.isGroup) && d.id != null) {
-        chats.push({ id: String(d.id), title: d.title || String(d.id) })
+      if (!(d.isChannel || d.isGroup) || d.id == null) continue
+      const title = d.title || String(d.id)
+      const username = (d.entity?.username as string | undefined) || null
+      const kind = d.isGroup || d.entity?.megagroup ? 'group' : 'channel'
+      let rank = 0
+      if (q) {
+        const t = fold(title)
+        const u = fold(username || '')
+        if (t === q || u === q) rank = 3
+        else if (t.startsWith(q) || u.startsWith(q)) rank = 2
+        else if (t.includes(q) || u.includes(q) || q.split(' ').every((w) => t.includes(w))) rank = 1
+        else continue
+      }
+      chats.push({ id: String(d.id), title, kind, username, rank })
+    }
+    return chats.sort((a, b) => b.rank - a.rank).map(({ rank: _r, ...c }) => c)
+  }
+
+  /**
+   * Read a group's recent posts and store the job posts among them: since the
+   * last message seen, or the last `days` days for a newly added group.
+   * Oldest first, so the inbox keeps the group's order.
+   */
+  async fetchHistory(chatId: string, opts: { days?: number; sinceLast?: boolean } = {}): Promise<{ found: number; created: number }> {
+    if (this.#fetching.has(chatId)) return { found: 0, created: 0 }
+    this.#fetching.add(chatId)
+    try {
+      const dialogs = await this.#dialogs()
+      const d = dialogs.find((x) => String(x.id) === String(chatId))
+      if (!d) throw new Error('That group isn’t in your Telegram chats any more (left or deleted?).')
+      const title = d.title || chatId
+      const sync = await readSync(chatId)
+      const minId = opts.sinceLast && sync?.last_message_id ? sync.last_message_id : 0
+      const days = opts.days ?? settingsStore.load().telegram.history_days ?? 3
+      const cutoff = minId ? 0 : Date.now() - days * 86_400_000
+      const client = this.client!
+      const raw = (await client.getMessages(d.entity ?? d, { limit: MAX_HISTORY, ...(minId ? { minId } : {}) })) as TgMessage[]
+      const msgs = raw
+        .filter((m) => typeof m.id === 'number' && (!cutoff || (m.date ?? 0) * 1000 >= cutoff))
+        .sort((a, b) => a.id! - b.id!)
+      let created = 0
+      let maxId = sync?.last_message_id ?? 0
+      for (const m of msgs) {
+        maxId = Math.max(maxId, m.id!)
+        const text = messageText(m)
+        if (!text.trim() || !this.#ingest) continue
+        try {
+          created += await this.#ingest(text, title, {
+            chatId,
+            messageId: m.id!,
+            postedAt: m.date ? new Date(m.date * 1000).toISOString() : null,
+            live: false,
+          })
+        } catch (e) {
+          log(`skipped message ${m.id} in ${title}:`, errMessage(e))
+        }
+      }
+      // Remember the newest message even when we only looked back N days,
+      // so the next catch-up starts from here.
+      const newest = raw.reduce((mx, m) => Math.max(mx, typeof m.id === 'number' ? m.id : 0), maxId)
+      await writeSync(chatId, { last_message_id: newest, last_fetch_at: new Date().toISOString(), last_fetch_found: msgs.length, last_fetch_new: created, error: null })
+      log(`Fetched ${msgs.length} message(s) from ${title}: ${created} new post(s)`)
+      return { found: msgs.length, created }
+    } catch (e) {
+      await writeSync(chatId, { error: errMessage(e), last_fetch_at: new Date().toISOString() }).catch(() => {})
+      throw e
+    } finally {
+      this.#fetching.delete(chatId)
+    }
+  }
+
+  /** Every watched group: whatever was posted since the last message seen. */
+  async catchUp(): Promise<number> {
+    if (this.state !== 'connected') return 0
+    let created = 0
+    for (const c of settingsStore.load().telegram.watched_chats || []) {
+      try {
+        created += (await this.fetchHistory(String(c.id), { sinceLast: true })).created
+      } catch (e) {
+        log(`catch-up for ${c.title} failed:`, errMessage(e))
       }
     }
-    return chats
+    return created
   }
 
   /**
@@ -349,6 +497,8 @@ class TelegramManager {
     }
     this.client = null
     this.#handlerRegistered = false
+    if (this.#catchUpTimer) clearInterval(this.#catchUpTimer)
+    this.#catchUpTimer = null
     this.#loginInFlight = false
     this.#codeDeferred = null
     this.#passwordDeferred = null

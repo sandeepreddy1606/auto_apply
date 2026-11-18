@@ -1,9 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { getSession, setStatus } from '@/lib/apply/sessions'
+import { assertCanChangeResume, lockVersion } from '@/lib/apply/relock'
+import { getSession } from '@/lib/apply/sessions'
 import { createVersion, getDefaultBase, pdfPathFor, updateVersion } from '@/lib/resume/store'
-import { sql } from '@/lib/server/db'
 import { HttpError, handler, intParam, json, readJson } from '@/lib/server/http'
 import { listResumes, pathFor } from '@/lib/server/resumes'
 
@@ -25,9 +25,7 @@ export const POST = handler(async (req: Request, ctx: { params: Promise<{ sid: s
   const sid = intParam((await ctx.params).sid)
   const s = await getSession(sid)
   if (!s) throw new HttpError(404, 'Application not found')
-  if (['filling', 'submitting', 'submitted', 'cancelled'].includes(s.status)) {
-    throw new HttpError(409, `Can't change the resume while ${s.status.replace('_', ' ')}.`)
-  }
+  assertCanChangeResume(s)
   const { resume_id } = await readJson<{ resume_id?: string }>(req)
   const src = resume_id ? pathFor(String(resume_id)) : null
   if (!src) throw new HttpError(400, 'Pick one of your uploaded resumes (Settings → Resumes).')
@@ -52,8 +50,5 @@ export const POST = handler(async (req: Request, ctx: { params: Promise<{ sid: s
   fs.copyFileSync(src, dest)
   await updateVersion(vid, { pdf_path: dest, compile_log: { ok: true, errors: [] } })
 
-  await sql.run("UPDATE resume_versions SET status = 'draft' WHERE session_id = ? AND status = 'locked'", [sid])
-  await updateVersion(vid, { status: 'locked' })
-  const next = await setStatus(sid, 'resume_ready', { resume_version_id: vid }, { type: 'resume.locked', actor: 'user', data: { version_id: vid, uploaded_pdf: path.basename(src) } })
-  return json(next)
+  return json(await lockVersion(s, vid, { uploaded_pdf: path.basename(src) }))
 })

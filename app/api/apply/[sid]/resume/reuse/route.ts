@@ -9,9 +9,11 @@ export const POST = handler(async (req: Request, ctx: { params: Promise<{ sid: s
   const sid = intParam((await ctx.params).sid)
   const s = await getSession(sid)
   if (!s) throw new HttpError(404, 'Application not found')
+  if (['submitting', 'submitted', 'cancelled'].includes(s.status)) throw new HttpError(409, `Can't change the resume while ${s.status.replace('_', ' ')}.`)
   const { version_id } = await readJson<{ version_id?: number }>(req)
   const src = version_id ? await getVersion(Number(version_id)) : null
   if (!src || src.status !== 'locked') throw new HttpError(400, 'Only resumes you sent before can be reused.')
+  if (src.generated_by === 'upload' || !src.latex.trim()) throw new HttpError(400, 'That was an uploaded PDF — attach it again with “Use a PDF I already have”.')
   const vid = await createVersion({ base_id: src.base_id, parent_id: src.id, job_id: s.job_id, session_id: sid, latex: src.latex, generated_by: 'user', status: 'draft', hint: `Reused from version ${src.id}` })
   await addEvent(sid, 'resume.reused', 'user', { from: src.id, version_id: vid })
   return json({ version_id: vid })

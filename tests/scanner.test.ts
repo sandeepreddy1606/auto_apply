@@ -4,7 +4,14 @@
  * Pure functions only, no network.
  */
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, test } from 'node:test'
+
+// The scanner module opens the database on import: never let that be your real one.
+process.env.AUTO_APPLY_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'autoapply-scanner-'))
+delete process.env.DATABASE_URL
 
 const await_import_bigtech = await import('../lib/jobs/bigtech.ts')
 const { detectBigTech, planSearch, parseGoogleResults } = await_import_bigtech

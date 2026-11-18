@@ -23,7 +23,12 @@ export const GET = handler(async (_req: Request, ctx: Ctx) => {
 export const PATCH = handler(async (req: Request, ctx: Ctx) => {
   const id = intParam((await ctx.params).id)
   if (!(await db.getApplication(id))) throw new HttpError(404, 'Application not found')
-  const fields = pick(await readJson(req), PATCHABLE)
+  const fields = pick<Record<string, unknown>>(await readJson(req), PATCHABLE)
+  // "I submitted it myself": record when.
+  if (fields.status === 'applied') {
+    fields.applied_at = new Date().toISOString()
+    fields.status_reason = null
+  }
   return json(await db.updateApplication(id, fields))
 })
 

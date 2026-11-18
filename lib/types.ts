@@ -1,7 +1,7 @@
 /** Shared shapes used by both the API routes and the client. */
 
 export type ApplyMethod = 'email' | 'gform' | 'link' | 'unknown'
-export type AppStatus = 'review' | 'applied' | 'failed' | 'manual' | 'skipped'
+export type AppStatus = 'review' | 'applying' | 'applied' | 'failed' | 'manual' | 'skipped'
 export type JobState = 'new' | 'seen' | 'shortlisted' | 'dismissed' | 'applied'
 
 export interface Profile {
@@ -48,6 +48,18 @@ export interface EmailTemplate {
 export interface WatchedChat {
   id: string
   title: string
+  /** 'group' | 'channel', when known. */
+  kind?: string
+  username?: string | null
+}
+
+/** Sync state of a watched group (kept in the kv table, not settings). */
+export interface ChatSync {
+  last_message_id: number
+  last_fetch_at: string | null
+  last_fetch_found: number
+  last_fetch_new: number
+  error: string | null
 }
 
 export interface TelegramConfig {
@@ -55,11 +67,21 @@ export interface TelegramConfig {
   api_hash: string
   phone: string
   watched_chats: WatchedChat[]
+  /** How many days of history to fetch when a group is added (0 = only new posts). */
+  history_days: number
 }
 
 export interface AutomationConfig {
   auto_apply_email: boolean
   auto_apply_gform: boolean
+  /** Start applying on career-page links as soon as a post arrives. */
+  auto_apply_link: boolean
+  /** After filling a career-page form, submit it when every required answer is in place. */
+  link_auto_submit: boolean
+  /** Google Forms: let the AI (your Claude subscription) answer what your profile and saved answers don't. */
+  gform_use_ai: boolean
+  /** Google Forms: tick standard declarations ("the information I gave is correct") for you. */
+  gform_tick_declarations: boolean
 }
 
 export interface CompaniesConfig {
@@ -105,6 +127,9 @@ export interface ParsedExtra {
   notice_period?: string
   job_type?: string
   deadline?: string
+  /** Technologies mentioned in the post (read with the description reader). */
+  skills_list?: string[]
+  work_mode?: string
   all_emails?: string[]
   all_form_urls?: string[]
   other_urls?: string[]
@@ -132,11 +157,19 @@ export interface Application {
   email_body: string | null
   form_schema: GoogleForm | null
   form_answers: FormAnswers | null
+  /** Google Form upload questions: entry key → the file you chose for it. */
+  form_files?: Record<string, FormFileChoice> | null
   status: AppStatus
   status_reason: string | null
   error: string | null
   applied_at: string | null
   notes: string | null
+  /** When the message was posted in Telegram (null for pasted posts). */
+  posted_at?: string | null
+  tg_chat_id?: string | null
+  tg_message_id?: number | null
+  /** Career-page links: the browser run applying this post (apply_sessions.id). */
+  session_id?: number | null
 }
 
 export interface Company {
@@ -154,6 +187,14 @@ export interface Company {
   active_jobs?: number
   matched_jobs?: number
   new_jobs?: number
+  /** Applications started for this company's jobs (not cancelled). */
+  applications?: number
+  /** 1 = never scanned automatically. */
+  paused?: number
+  /** Failed scans in a row (drives the retry backoff). */
+  fail_count?: number
+  next_scan_at?: string | null
+  scan_state?: 'queued' | 'scanning' | null
 }
 
 export interface CompanyJob {
@@ -194,12 +235,34 @@ export interface GoogleForm {
   collects_email: boolean
   page_count: number
   fields: GoogleFormField[]
+  /** Read in the signed-in browser: this form needs a Google account. */
+  signed_in?: boolean
+  /** Where each answer came from (entry key → source); "you" answers are never overwritten. */
+  answer_meta?: Record<string, FormAnswerMeta>
+  /** The form doesn't fit you (e.g. it only takes BCom/BBA graduates): why. */
+  ineligible?: string | null
+  /** Why a question was left for you (entry key → e.g. "Your 12th percentage isn't in your resume"). */
+  missing_notes?: Record<string, string>
+}
+
+/** A file for an upload question: one of your resumes, a file uploaded on the post, or nothing. */
+export type FormFileChoice = { kind: 'resume'; id: string } | { kind: 'file'; name: string } | { kind: 'skip' }
+
+export type FormAnswerSource = 'you' | 'profile' | 'answers' | 'learned' | 'ai'
+
+export interface FormAnswerMeta {
+  source: FormAnswerSource
+  /** For AI answers: fact = stated in your resume/profile; preference = from your settings; inferred = a judgement call. */
+  basis?: 'fact' | 'preference' | 'inferred'
+  note?: string
 }
 
 export interface MissingQuestion {
   title: string
   type: string
   supported: boolean
+  /** Why it couldn't be answered automatically (e.g. "Your 12th-standard percentage isn't in your resume"). */
+  note?: string
 }
 
 export interface Stats {
@@ -247,12 +310,16 @@ export interface BatchItemResult {
   ok: boolean
   skipped?: string
   needs_input?: boolean
+  /** Careers-page links: the browser run was queued (it finishes in the background). */
+  started?: boolean
   job_title?: string | null
   error?: string | null
 }
 
 export interface BatchResult {
   applied: number
+  /** Careers-page links queued for the browser. */
+  started?: number
   needs_input: number
   total: number
   results: BatchItemResult[]
@@ -360,6 +427,8 @@ export interface ApplyAutomationConfig {
   typing_delay_ms: number
   screenshot_retention_days: number
   extra_domains: string[]
+  /** chromium = Playwright's bundled browser; chrome = your installed Google Chrome (own profile). */
+  browser: 'chromium' | 'chrome'
 }
 
 export type AtsType =
@@ -400,14 +469,35 @@ export interface JobListItem {
   has_description: boolean
   session_id: number | null
   session_status: string | null
+  /** Same posting in other cities, folded into this row in the list. */
+  more_locations?: number
 }
 
 export interface JobDetail extends JobListItem {
+  /** The same posting in other cities. */
+  siblings?: { id: number; location: string | null }[]
   description_html: string | null
   description_text: string | null
   jd_fetched_at: string | null
   keywords: { required: string[]; preferred: string[] } | null
+  /** What the description asks for: experience, education, job type, work mode, pay, visa … */
+  requirements: JobRequirements | null
   sessions: { id: number; status: string; stage: string | null; started_at: string }[]
+}
+
+export interface JobRequirements {
+  experience: { min: number; max: number | null; text: string } | null
+  experience_preferred: { min: number; max: number | null; text: string } | null
+  education: { level: 'phd' | 'masters' | 'bachelors' | 'diploma' | null; fields: string[]; equivalent: boolean; text: string } | null
+  employment_type: 'full-time' | 'part-time' | 'contract' | 'internship' | 'temporary' | null
+  work_mode: 'remote' | 'hybrid' | 'onsite' | null
+  salary: string | null
+  visa: 'sponsors' | 'no-sponsorship' | null
+  notice: string | null
+  shift: string | null
+  travel: string | null
+  /** Short labels for chips: "3+ yrs", "Bachelor's (Computer Science)", "Full-time" … */
+  summary: string[]
 }
 
 export type SessionStatus =
@@ -416,6 +506,24 @@ export type SessionStatus =
   | 'failed' | 'cancelled'
 
 export type AppStage = 'applied' | 'screening' | 'interview' | 'offer' | 'rejected' | 'ghosted'
+
+/** An application Claude submitted on another site (Naukri, a career page). */
+export type ClaudeAppStatus = 'applied' | 'needs_you' | 'interview' | 'offer' | 'rejected' | 'skipped'
+export interface ClaudeApplication {
+  id: number
+  title: string
+  company: string
+  location: string
+  experience: string
+  /** Where it was submitted: "Naukri" or the career site's name. */
+  platform: string
+  url: string
+  /** File name of the resume that was sent. */
+  resume: string
+  status: ClaudeAppStatus
+  note: string
+  applied_at: string
+}
 
 export type FieldKind =
   | 'text' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'file' | 'combobox' | 'date'
@@ -544,6 +652,8 @@ export interface ResumeIssue {
 export interface ApplySession {
   id: number
   job_id: number
+  /** Set when this run applies a Telegram post (then job_id is 0). */
+  post_id?: number | null
   resume_version_id: number | null
   status: SessionStatus
   ats_type: string | null

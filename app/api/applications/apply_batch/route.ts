@@ -40,11 +40,14 @@ export const POST = handler(async (req: Request) => {
         continue
       }
       const ok = updated.status === 'applied'
+      // Careers-page links are queued for the browser and finish on their own.
+      const started = updated.status === 'applying'
       results.push({
         id: appId,
-        ok,
+        ok: ok || started,
+        started,
         job_title: updated.job_title,
-        error: ok ? null : updated.error,
+        error: ok || started ? null : updated.error,
       })
     } catch (e) {
       if (e instanceof service.NeedsInput) {
@@ -68,7 +71,8 @@ export const POST = handler(async (req: Request) => {
     }
   }
 
-  const applied = results.filter((r) => r.ok && !r.skipped).length
+  const applied = results.filter((r) => r.ok && !r.skipped && !r.started).length
+  const started = results.filter((r) => r.started).length
   const needsInput = results.filter((r) => r.needs_input).length
-  return json({ applied, needs_input: needsInput, total: results.length, results })
+  return json({ applied, started, needs_input: needsInput, total: results.length, results })
 })

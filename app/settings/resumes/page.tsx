@@ -67,7 +67,7 @@ function ResumeRow({ r, onChanged }: { r: ResumeMeta; onChanged: () => void }) {
           </label>
         </div>
         <div className="resume-meta">
-          {r.original} · {r.size_kb} KB
+          {r.original}, {r.size_kb} KB
           {r.is_default && (
             <span className="badge applied" style={{ marginLeft: 8 }}>
               default

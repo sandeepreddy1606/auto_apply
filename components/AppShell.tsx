@@ -1,23 +1,24 @@
 'use client'
 
 /**
- * Client shell around every page: auth gate, toasts, guarded navigation and the
- * bottom nav with its live badges.
- *
- * The Telegram status and the review/new-job counts were polled by the old
- * top-level App component; they live here for the same reason — the bottom nav
- * badges need them on every route.
+ * Client shell around every page: auth gate, toasts, guarded navigation, the
+ * sidebar (laptop) / tab bar (phone) with live badges, and the Ctrl/⌘ K
+ * command palette.
  */
 import { usePathname } from 'next/navigation'
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { api } from '@/lib/api'
+import { career } from '@/lib/career-api'
 import type { TelegramStatus } from '@/lib/types'
 
 import { AuthProvider, isAuthRoute, useAuth } from './AuthProvider'
-import { BriefcaseIcon, BuildingIcon, GearIcon, GridIcon, KanbanIcon, ListIcon } from './Icons'
+import CommandPalette from './CommandPalette'
+import { BoltIcon, BriefcaseIcon, BuildingIcon, GearIcon, GridIcon, KanbanIcon, ListIcon, SearchIcon, SparkIcon } from './Icons'
 import { NavigationProvider, useNavigate } from './Navigation'
+import StaleGuard from './StaleGuard'
+import { ThemeSwitch } from './Theme'
 import { ToastProvider } from './Toast'
 
 interface TgContextValue {
@@ -33,21 +34,40 @@ const TgContext = createContext<TgContextValue>({
 /** Live Telegram status, shared by the overview, settings hub and nav. */
 export const useTelegramStatus = () => useContext(TgContext)
 
-/** Sidebar on laptops, bottom tab bar on phones (CSS switches at 1024px). */
-const NAV = [
-  { key: '', to: '/', label: 'Overview', Icon: GridIcon, mobile: true },
-  { key: 'jobs', to: '/jobs', label: 'Jobs', Icon: BriefcaseIcon, mobile: true },
-  { key: 'tracker', to: '/tracker', label: 'Applications', Icon: KanbanIcon, mobile: true },
-  { key: 'companies', to: '/companies', label: 'Companies', Icon: BuildingIcon, mobile: false },
-  { key: 'applications', to: '/applications', label: 'Telegram inbox', Icon: ListIcon, mobile: true },
-  { key: 'settings', to: '/settings', label: 'Settings', Icon: GearIcon, mobile: true },
+type NavKey = '' | 'jobs' | 'tracker' | 'claude-applications' | 'companies' | 'applications' | 'settings'
+interface NavItem { key: NavKey; to: string; label: string; short: string; Icon: typeof GridIcon; mobile: boolean }
+
+/** Grouped the way the work flows: find jobs → apply → set up. */
+const GROUPS: { label: string; items: NavItem[] }[] = [
+  {
+    label: 'Find',
+    items: [
+      { key: '', to: '/', label: 'Overview', short: 'Home', Icon: GridIcon, mobile: true },
+      { key: 'jobs', to: '/jobs', label: 'Jobs', short: 'Jobs', Icon: BriefcaseIcon, mobile: true },
+      { key: 'companies', to: '/companies', label: 'Companies', short: 'Companies', Icon: BuildingIcon, mobile: false },
+    ],
+  },
+  {
+    label: 'Apply',
+    items: [
+      { key: 'tracker', to: '/tracker', label: 'Applications', short: 'Applied', Icon: KanbanIcon, mobile: true },
+      { key: 'claude-applications', to: '/claude-applications', label: 'Applications through Claude', short: 'Claude', Icon: SparkIcon, mobile: false },
+      { key: 'applications', to: '/applications', label: 'Telegram inbox', short: 'Inbox', Icon: ListIcon, mobile: true },
+    ],
+  },
+  {
+    label: 'Setup',
+    items: [{ key: 'settings', to: '/settings', label: 'Settings', short: 'Settings', Icon: GearIcon, mobile: true }],
+  },
 ]
+const NAV = GROUPS.flatMap((g) => g.items)
 
 export default function AppShell({ children }: { children: ReactNode }) {
   return (
     <NavigationProvider>
       <AuthProvider>
         <ToastProvider>
+          <StaleGuard />
           <Frame>{children}</Frame>
         </ToastProvider>
       </AuthProvider>
@@ -65,6 +85,14 @@ function initials(name: string, email: string): string {
   const parts = (name || email).trim().split(/\s+/).filter(Boolean)
   const s = parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : (parts[0] || '?').slice(0, 2)
   return s.toUpperCase()
+}
+
+export function BrandMark() {
+  return (
+    <span className="brand-mark" aria-hidden="true">
+      <BoltIcon fill="currentColor" strokeWidth={0} />
+    </span>
+  )
 }
 
 function UserChip() {
@@ -94,31 +122,43 @@ function UserChip() {
 function Chrome({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const navigate = useNavigate()
-  const [tg, setTg] = useState<TelegramStatus>({
-    state: 'disconnected',
-    error: null,
-    watched_chats: [],
-  })
+  const [tg, setTg] = useState<TelegramStatus>({ state: 'disconnected', error: null, watched_chats: [] })
   const [reviewCount, setReviewCount] = useState(0)
   const [newJobsCount, setNewJobsCount] = useState(0)
+  const [needsYou, setNeedsYou] = useState(0)
+  const [palette, setPalette] = useState(false)
 
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [pathname])
 
+  // Ctrl/⌘ K opens the command palette from anywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPalette((p) => !p)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   useEffect(() => {
     let alive = true
     const poll = async () => {
       try {
-        const [s, st, cj] = await Promise.all([
+        const [s, st, cj, sessions] = await Promise.all([
           api.tgStatus(),
           api.stats(),
           api.companyJobsSummary().catch(() => null),
+          career.sessions().catch(() => null),
         ])
         if (!alive) return
         setTg(s)
         setReviewCount(st.by_status?.review || 0)
         if (cj) setNewJobsCount(cj.new_matched || 0)
+        if (sessions) setNeedsYou(sessions.filter((x) => ['needs_input', 'blocked', 'unconfirmed', 'reviewing'].includes(x.status)).length)
       } catch {
         /* backend warming up */
       }
@@ -131,33 +171,70 @@ function Chrome({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // '/' -> overview, '/applications/12' -> 'applications', etc.
+  // '/' -> overview, '/applications/12' -> 'applications'; /apply/<sid> belongs to Applications.
   const root = pathname.split('/').filter(Boolean)[0] ?? ''
-  // /apply/<sid> belongs to Jobs; /paste to the overview.
-  const active = root === 'paste' ? '' : root === 'apply' ? 'jobs' : root
+  const active = root === 'paste' ? '' : root === 'apply' ? 'tracker' : root
+
+  const badge = (key: NavKey): { n: number; hot: boolean } | null => {
+    if (key === 'jobs' && newJobsCount > 0) return { n: newJobsCount, hot: true }
+    if (key === 'tracker' && needsYou > 0) return { n: needsYou, hot: true }
+    if (key === 'applications' && reviewCount > 0) return { n: reviewCount, hot: false }
+    return null
+  }
 
   return (
     <TgContext.Provider value={{ tg, setTg }}>
       <div className="shell">
+        <div className="mobile-top">
+          <span className="brand"><BrandMark /> Auto Apply</span>
+          <span className="mt-actions">
+            <button className="icon-btn" onClick={() => setPalette(true)} aria-label="Search">
+              <SearchIcon />
+            </button>
+          </span>
+        </div>
         <div className="page" key={pathname}>
           {children}
         </div>
       </div>
 
       <aside className="sidebar" aria-label="Main">
-        <div className="sidebar-brand">⚡ Auto Apply</div>
-        {NAV.map((n) => (
-          <button
-            key={n.to}
-            className={active === n.key ? 'side-link active' : 'side-link'}
-            onClick={() => navigate(n.to)}
-          >
-            <n.Icon />
-            <span>{n.label}</span>
-            {n.key === 'applications' && reviewCount > 0 && <span className="side-badge">{reviewCount}</span>}
-            {n.key === 'jobs' && newJobsCount > 0 && <span className="side-badge">{newJobsCount}</span>}
-          </button>
+        <div className="brand"><BrandMark /> Auto Apply</div>
+        <button className="side-search" onClick={() => setPalette(true)}>
+          <SearchIcon />
+          <span>Search…</span>
+          <kbd>Ctrl K</kbd>
+        </button>
+        {GROUPS.map((g) => (
+          <nav className="side-group" key={g.label} aria-label={g.label}>
+            <div className="side-label">{g.label}</div>
+            {g.items.map((n) => {
+              const b = badge(n.key)
+              return (
+                <button
+                  key={n.to}
+                  className={active === n.key ? 'side-link active' : 'side-link'}
+                  aria-current={active === n.key ? 'page' : undefined}
+                  onClick={() => navigate(n.to)}
+                >
+                  <n.Icon />
+                  <span>{n.label}</span>
+                  {b && <span className={`side-badge ${b.hot ? 'hot' : ''}`}>{b.n}</span>}
+                </button>
+              )
+            })}
+          </nav>
         ))}
+        <div className="side-status">
+          <div className="ss-row">
+            <span className={`status-dot ${tg.state === 'connected' ? 'on' : ''}`} />
+            <span>Telegram <b>{tg.state === 'connected' ? 'listening' : 'offline'}</b></span>
+          </div>
+          <div className="ss-row" style={{ justifyContent: 'space-between' }}>
+            <span>Theme</span>
+            <ThemeSwitch />
+          </div>
+        </div>
         <UserChip />
       </aside>
 
@@ -166,15 +243,17 @@ function Chrome({ children }: { children: ReactNode }) {
           <button
             key={n.to}
             className={active === n.key ? 'active' : ''}
-            title={n.label}
+            aria-current={active === n.key ? 'page' : undefined}
             onClick={() => navigate(n.to)}
           >
             <n.Icon />
-            {n.key === 'applications' && reviewCount > 0 && <span className="nav-dot" />}
-            {n.key === 'jobs' && newJobsCount > 0 && <span className="nav-dot" />}
+            <span>{n.short}</span>
+            {badge(n.key) && <span className="nav-dot" />}
           </button>
         ))}
       </nav>
+
+      <CommandPalette open={palette} onClose={() => setPalette(false)} />
     </TgContext.Provider>
   )
 }

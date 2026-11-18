@@ -24,7 +24,7 @@ function display(v: AnswerValue): string {
   if (v === null || v === undefined || v === '') return '—'
   if (typeof v === 'boolean') return v ? 'Yes (ticked)' : 'No'
   if (Array.isArray(v)) return v.join(', ')
-  return v.split(/[\\/]/).pop() && /\.pdf$/i.test(v) ? `📎 ${v.split(/[\\/]/).pop()}` : v
+  return v.split(/[\\/]/).pop() && /\.pdf$/i.test(v) ? `Attached: ${v.split(/[\\/]/).pop()}` : v
 }
 
 function Editor({ f, value, onChange }: { f: FormField; value: AnswerValue; onChange: (v: AnswerValue) => void }) {
@@ -132,12 +132,41 @@ export default function ReviewPanel({ d, reload }: { d: ApplyDetail; reload: () 
       {plan?.warnings.map((w, i) => <div key={i} className="warn-box" style={{ marginBottom: 8 }}>{w}</div>)}
 
       {(['resume_ready', 'failed', 'blocked', 'needs_input', 'reviewing'].includes(s.status)) && (
-        <div className="row-actions" style={{ marginTop: 0, marginBottom: 12 }}>
-          <GatedButton gate={d.gates.fill} busy={busy === 'fill'} className={s.status === 'resume_ready' ? 'btn primary' : 'btn'} onClick={() => act('fill', () => career.fill(s.id))}>
-            {s.status === 'resume_ready' ? '⚡ Autofill the application' : s.status === 'blocked' ? 'Continue filling' : 'Re-fill from the start'}
+        <div className="row-actions" style={{ marginTop: 0, marginBottom: 12, alignItems: 'flex-start' }}>
+          <GatedButton gate={d.gates.fill} busy={busy === 'fill'} className={s.status === 'resume_ready' || s.status === 'blocked' ? 'btn primary' : 'btn'} onClick={() => act('fill', () => career.fill(s.id))}>
+            {s.status === 'resume_ready'
+              ? 'Autofill the application'
+              : s.status === 'blocked'
+                ? 'Continue filling'
+                : s.status === 'failed'
+                  ? 'Try again'
+                  : 'Re-fill from the start'}
           </GatedButton>
-          {plan && <button className="btn sm" onClick={() => act('focus', () => career.focus(s.id))}>Show browser window</button>}
+          <button className="btn sm" onClick={() => act('focus', () => career.focus(s.id))}>Show browser window</button>
+          {s.status !== 'resume_ready' && (
+            <button
+              className="btn sm"
+              title="You finished the form yourself in the browser window"
+              onClick={() =>
+                window.confirm('Mark this application as submitted? Only do this if you finished and sent it yourself in the browser window.') &&
+                act('self', () => career.selfSubmitted(s.id), 'Marked as applied.')
+              }
+            >
+              I submitted it myself
+            </button>
+          )}
+          {!(plan && editable) && (
+            <button className="btn sm danger" onClick={() => window.confirm('Cancel this application?') && act('cancel', () => career.cancel(s.id))}>
+              Cancel
+            </button>
+          )}
         </div>
+      )}
+      {s.status === 'resume_ready' && !plan && (
+        <p className="muted small" style={{ marginTop: -4, marginBottom: 12 }}>
+          A browser window opens, fills the form from your profile and answers, attaches your resume and stops before submitting.
+          Anything it can’t answer is listed here for you. If the site asks you to sign in, do it in that window and press “Continue filling”.
+        </p>
       )}
 
       {working && (
@@ -161,10 +190,10 @@ export default function ReviewPanel({ d, reload }: { d: ApplyDetail; reload: () 
         <div className="review-grid">
           <div>
             <div className="counts">
-              <span className="pill ok">✅ {counts.auto} from profile/resume</span>
-              <span className="pill info">🧠 {counts.bank} learned</span>
-              <span className="pill purple">✍ {counts.draft} AI drafts</span>
-              <span className={`pill ${counts.need ? 'bad' : 'ok'}`}>❗ {counts.need} need you</span>
+              <span className="pill ok">{counts.auto} from profile & resume</span>
+              <span className="pill info">{counts.bank} learned</span>
+              <span className="pill purple">{counts.draft} AI drafts</span>
+              <span className={`pill ${counts.need ? 'bad' : 'ok'}`}>{counts.need} need you</span>
               {!plan.final_step_reached && <span className="pill warn">More steps ahead</span>}
             </div>
             <div className="field-list">

@@ -9,11 +9,40 @@ import { authedBlobUrl } from '@/lib/career-api'
 import type { Gate } from '@/lib/career-api'
 import type { ScoreBreakdown, SessionStatus } from '@/lib/types'
 
-export function ScorePill({ score, breakdown }: { score: number | null; breakdown?: ScoreBreakdown | null }) {
-  if (score == null) return <span className="score" title="Not scored yet">–</span>
-  if (breakdown?.excluded) return <span className="score x" title={`Filtered: ${breakdown.excluded}`}>{score}</span>
-  const cls = score >= 75 ? 'hi' : score >= 55 ? 'mid' : 'lo'
-  return <span className={`score ${cls}`}>{score}</span>
+/**
+ * The match score, the one bold element of the interface: a dial whose arc is
+ * the score, with the number set in the display face. Colour says how good
+ * the fit is; a filtered job shows a muted, struck-through dial.
+ */
+export function ScorePill({ score, breakdown, size = 'md' }: { score: number | null; breakdown?: ScoreBreakdown | null; size?: 'sm' | 'md' | 'lg' }) {
+  const px = size === 'lg' ? 64 : size === 'sm' ? 36 : 44
+  const stroke = size === 'lg' ? 5 : 3.5
+  const r = (px - stroke) / 2
+  const c = 2 * Math.PI * r
+  const filtered = Boolean(breakdown?.excluded)
+  const tone = score == null || filtered ? 'none' : score >= 75 ? 'hi' : score >= 55 ? 'mid' : 'lo'
+  const title = score == null ? 'Not scored yet' : filtered ? `Filtered: ${breakdown!.excluded}` : `Match score ${score} of 100`
+  return (
+    <span className={`dial ${tone} ${size}`} style={{ width: px, height: px }} title={title} role="img" aria-label={title}>
+      <svg width={px} height={px} viewBox={`0 0 ${px} ${px}`} aria-hidden="true">
+        <circle className="dial-track" cx={px / 2} cy={px / 2} r={r} strokeWidth={stroke} fill="none" />
+        {score != null && !filtered && (
+          <circle
+            className="dial-arc"
+            cx={px / 2}
+            cy={px / 2}
+            r={r}
+            strokeWidth={stroke}
+            fill="none"
+            strokeLinecap="round"
+            strokeDasharray={`${(Math.max(0, Math.min(100, score)) / 100) * c} ${c}`}
+            transform={`rotate(-90 ${px / 2} ${px / 2})`}
+          />
+        )}
+      </svg>
+      <b className={filtered ? 'struck' : ''}>{score ?? '–'}</b>
+    </span>
+  )
 }
 
 export const STATUS_LABEL: Record<SessionStatus, [string, string]> = {
@@ -73,7 +102,7 @@ export function GatedButton({
           {gate.reason}{' '}
           {gate.fix && (
             <button className="link-btn" onClick={() => navigate(gate.fix!)}>
-              Fix →
+              Fix it
             </button>
           )}
         </div>
@@ -208,15 +237,16 @@ export function PdfView({ src, stamp }: { src: string | null; stamp: string | nu
 }
 
 export function Breakdown({ b }: { b: ScoreBreakdown }) {
+  const total = b.skills_have.length + b.skills_missing.length
   const rows: [string, number, string][] = [
-    ['Title', b.title, b.title_match ? `matches “${b.title_match}”` : 'no role match'],
-    ['Skills', b.skills, `${b.skills_have.length}/${b.skills_have.length + b.skills_missing.length}`],
-    ['Experience', b.experience, b.experience_range ?? 'not stated'],
-    ['Location', b.location, ''],
-    ['Freshness', b.freshness, ''],
+    ['Role', b.title, b.title_match ? `Matches “${b.title_match}”` : 'Matches none of your roles'],
+    ['Skills', b.skills, total ? `${b.skills_have.length} of ${total} on your resume` : 'None listed'],
+    ['Experience', b.experience, b.experience >= 0.9 ? 'Fits your experience' : b.experience >= 0.5 ? 'A stretch' : 'Well above yours'],
+    ['Location', b.location, b.location >= 1 ? 'Where you want to work' : b.location >= 0.5 ? 'Not your first choice' : 'Outside your locations'],
+    ['Freshness', b.freshness, b.freshness >= 0.8 ? 'Posted recently' : b.freshness >= 0.4 ? 'A few weeks old' : 'Older posting'],
   ]
   return (
-    <div className="breakdown">
+    <div className="breakdown" aria-label="Why this score">
       {rows.map(([k, v, d]) => (
         <div key={k}>
           <b>{k}</b>

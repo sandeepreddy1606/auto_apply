@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useState } from 'react'
 
 import { useToast } from '@/components/Toast'
+import { LockIcon, SparkIcon } from '@/components/Icons'
 import { career } from '@/lib/career-api'
 import type { ApplyDetail } from '@/lib/career-api'
 import type { ResumeVersion } from '@/lib/types'
@@ -71,7 +72,7 @@ function UsePdfInstead({ sid, reload, emphasise }: { sid: number; reload: () => 
             ))}
           </select>
           <button type="button" className="btn sm primary" disabled={!pick || busy} onClick={use}>
-            {busy ? 'Attaching…' : 'Use this PDF →'}
+            {busy ? 'Attaching…' : 'Use this PDF'}
           </button>
           <p className="muted small">Sent as-is: no tailoring or ATS check for this application.</p>
         </>
@@ -136,7 +137,7 @@ export default function ResumeStudio({ d, reload }: { d: ApplyDetail; reload: ()
     try {
       const nv = await career.compileVersion(id)
       setV(nv)
-      if (announce) toast(nv.compile_log?.ok ? `Compiled · ${nv.page_count} page(s)` : 'Compile failed — see errors', nv.compile_log?.ok ? 'success' : 'error')
+      if (announce) toast(nv.compile_log?.ok ? `Compiled: ${nv.page_count} page${nv.page_count === 1 ? '' : 's'}` : 'Compile failed — see errors', nv.compile_log?.ok ? 'success' : 'error')
       if (!nv.compile_log?.ok) setTab('report')
       reload()
     } catch (e) {
@@ -223,7 +224,13 @@ export default function ResumeStudio({ d, reload }: { d: ApplyDetail; reload: ()
   const rep = v?.ats_report
   const guard = v?.guard_report
   const generating = v?.status === 'generating'
-  const lockGate = dirty ? { ok: false, reason: 'Save & compile your edits first.', fix: null } : v?.compile_log?.ok ? { ok: true, reason: null, fix: null } : d.gates.lock
+  const isUpload = v?.generated_by === 'upload'
+  const serverGate = v ? d.lock_gates?.[v.id] : undefined
+  const lockGate = dirty
+    ? { ok: false, reason: 'Save & compile your edits first.', fix: null }
+    : generating
+      ? { ok: false, reason: 'Still generating…', fix: null }
+      : serverGate ?? (v?.compile_log?.ok ? { ok: true, reason: null, fix: null } : d.gates.lock)
 
   return (
     <div>
@@ -231,16 +238,16 @@ export default function ResumeStudio({ d, reload }: { d: ApplyDetail; reload: ()
         <select value={vid ?? ''} onChange={(e) => setVid(Number(e.target.value))} aria-label="Resume version">
           {d.versions.map((x) => (
             <option key={x.id} value={x.id}>
-              v{x.id} · {VLABEL[x.generated_by] ?? x.generated_by}
-              {x.status === 'locked' ? ' · 🔒 locked' : x.status === 'generating' ? ' · generating…' : x.status === 'awaiting_manual' ? ' · waiting for answer' : x.status === 'failed' ? ' · failed' : ''}
-              {x.ats_report ? ` · ${x.ats_report.coverage.pct}% match` : ''} · {timeAgo(x.created_at)}
+              v{x.id}, {VLABEL[x.generated_by] ?? x.generated_by}
+              {x.status === 'locked' ? ', in use' : x.status === 'generating' ? ', generating…' : x.status === 'awaiting_manual' ? ' · waiting for answer' : x.status === 'failed' ? ' · failed' : ''}
+              {x.ats_report ? `, ${x.ats_report.coverage.pct}% match` : ''}, {timeAgo(x.created_at)}
             </option>
           ))}
         </select>
         <div className="spacer" />
         <input placeholder="Optional: what to emphasise (e.g. backend, Java)" value={hint} onChange={(e) => setHint(e.target.value)} style={{ width: 'min(320px, 100%)' }} />
         <GatedButton gate={d.gates.generate} busy={busy === 'generate'} onClick={generate} className="btn">
-          ✨ Generate tailored
+          <SparkIcon /> Generate tailored
         </GatedButton>
       </div>
 
@@ -282,6 +289,23 @@ export default function ResumeStudio({ d, reload }: { d: ApplyDetail; reload: ()
         </div>
       )}
 
+      {/* Always visible — not hidden on one tab — so the way forward is never out of sight. */}
+      <div className="lock-bar card">
+        <div className="lock-main">
+          {locked && locked.id === v?.id ? (
+            <span className="ok-text"><LockIcon style={{ width: 14, height: 14, verticalAlign: -2 }} /> v{locked.id} ({VLABEL[locked.generated_by] ?? locked.generated_by}) is the resume for this application.</span>
+          ) : (
+            <GatedButton gate={lockGate} busy={busy === 'lock'} onClick={lock} className="btn primary">
+              Use this resume
+            </GatedButton>
+          )}
+          {locked && locked.id !== v?.id && (
+            <span className="muted small">Currently using v{locked.id}. Pick it above to see it.</span>
+          )}
+        </div>
+        <UsePdfInstead sid={sid} reload={reload} emphasise={!lockGate.ok} />
+      </div>
+
       <div className="studio-tabs seg multi">
         {(['edit', 'pdf', 'report'] as const).map((t) => (
           <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
@@ -292,18 +316,22 @@ export default function ResumeStudio({ d, reload }: { d: ApplyDetail; reload: ()
 
       <div className="studio">
         <div className="pane" style={{ display: tab === 'edit' ? 'block' : 'none' }}>
-          {v ? (
+          {isUpload ? (
+            <p className="muted small" style={{ padding: 16 }}>
+              This version is a PDF you uploaded, so there’s no LaTeX to edit. Pick another version to edit, or see it under Preview.
+            </p>
+          ) : v ? (
             <LatexEditor value={draft} onChange={setDraft} onSave={saveAndCompile} errorLines={errLines} jumpTo={jump} readOnly={generating} />
           ) : (
             <div className="cm-host skeleton" />
           )}
-          <div className="row-actions" style={{ marginTop: 10 }}>
+          {!isUpload && <div className="row-actions" style={{ marginTop: 10 }}>
             <button className="btn primary sm" disabled={!v || generating || busy === 'compile'} onClick={saveAndCompile}>
               {busy === 'compile' ? <span className="spin" /> : null} {dirty ? 'Save & compile' : 'Compile'} <span className="muted">(Ctrl+S)</span>
             </button>
             {dirty && <button className="btn sm" onClick={() => setDraft(v!.latex)}>Revert</button>}
             {v && v.generated_by !== 'user' && dirty && <span className="small muted">Saving creates a new version; this one stays as it was.</span>}
-          </div>
+          </div>}
         </div>
 
         <div className="pane" style={{ display: tab === 'pdf' ? 'block' : 'none' }}>
@@ -367,20 +395,10 @@ export default function ResumeStudio({ d, reload }: { d: ApplyDetail; reload: ()
                   </div>
                 ))}
                 {guard.notes.map((n, i) => (
-                  <div key={`n${i}`} className="flag">💡 {n}</div>
+                  <div key={`n${i}`} className="flag">{n}</div>
                 ))}
               </div>
             )}
-          </div>
-          <div style={{ marginTop: 12 }}>
-            {locked?.id === v?.id ? (
-              <div className="ok-box">🔒 This version is locked to the application.</div>
-            ) : (
-              <GatedButton gate={lockGate} busy={busy === 'lock'} onClick={lock}>
-                Use this resume →
-              </GatedButton>
-            )}
-            <UsePdfInstead sid={sid} reload={reload} emphasise={!lockGate.ok} />
           </div>
         </div>
       </div>
