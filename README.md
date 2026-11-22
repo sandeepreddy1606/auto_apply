@@ -304,11 +304,29 @@ answers, AI and Apply automation.
   logs (`data/logs/worker.log`). A `data/seed/base_resume.tex` is imported as
   your default base resume on first run.
 
+## Branches
+
+- **`development`** is where all work happens. It always holds the complete,
+  current code. Commit to it (or to a short-lived branch made from it and merged
+  back), then push it.
+- **`main`** is the stable line: `development` is merged into it through a pull
+  request when a set of changes is ready.
+- Never committed (see `.gitignore`): `data/` (your database, settings, resumes,
+  the signed-in browser profile, the Telegram session), `.env`, `node_modules/`
+  and build output (`.next/`, `next-env.d.ts`, `*.tsbuildinfo`). A fresh clone
+  creates `data/` on first run; copy your own `data/` across to keep your setup.
+
+```bash
+git switch development && git pull     # start of a session
+npm test                                # before committing
+git add -A && git commit -m "…" && git push
+```
+
 ## Tests
 
 ```bash
-npm test                    # unit: parity + auth/settings + career flow (151 tests)
-npm run build && npm run test:integration   # browser + full-stack (31 tests)
+npm test                    # unit: parity + auth/settings + career flow + Google Forms (170 tests)
+npm run build && npm run test:integration   # browser + full-stack (33 tests)
 AA_LIVE=1 node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve.mjs \
   --test tests/live/tailor-live.test.ts     # one real Claude Code call (uses your Pro limit)
 ```
