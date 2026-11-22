@@ -1,7 +1,7 @@
 {
   "name": "Auto Apply",
   "short_name": "Auto Apply",
-  "description": "Job applications from Telegram — review and apply fast.",
+  "description": "Jobs from the career pages you watch — tailor, apply and track.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

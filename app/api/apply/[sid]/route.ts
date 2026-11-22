@@ -4,7 +4,6 @@ import { getJob } from '@/lib/jobs/store'
 import { listVersionsForSession, lockedVersions } from '@/lib/resume/store'
 import { similarity } from '@/lib/resume/tailor'
 import { analyzeJd } from '@/lib/jobs/analyze'
-import * as db from '@/lib/server/db'
 import { HttpError, handler, intParam, json } from '@/lib/server/http'
 
 export const dynamic = 'force-dynamic'
@@ -15,11 +14,6 @@ export const GET = handler(async (_req: Request, ctx: { params: Promise<{ sid: s
   const session = await getSession(sid)
   if (!session) throw new HttpError(404, 'Application not found')
   const job = session.job_id > 0 ? await getJob(session.job_id) : null
-  // A Telegram post's careers-page run: show the post instead of a scanned job.
-  const postRow = session.post_id ? await db.getApplication(session.post_id) : null
-  const post = postRow
-    ? { id: postRow.id, job_title: postRow.job_title, company: postRow.company, channel: postRow.channel, apply_url: postRow.apply_url }
-    : null
   const versions = (await listVersionsForSession(sid)).map(({ latex: _l, ...v }) => v)
   const events = await eventsSince(sid, 0)
 
@@ -46,7 +40,6 @@ export const GET = handler(async (_req: Request, ctx: { params: Promise<{ sid: s
 
   return json({
     session,
-    post,
     lock_gates,
     job,
     versions,

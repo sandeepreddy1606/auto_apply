@@ -58,20 +58,9 @@ export const HANDLERS: Record<string, Handler> = {
     return { ok: true }
   },
   async 'apply.fill'(t) {
-    const { runFill, runSubmit } = await import('@/lib/apply/executor')
+    const { runFill } = await import('@/lib/apply/executor')
     const sid = num(t.payload.session_id, 'session_id')
     await withSessionFailure(sid, () => runFill(sid))
-    // One-click apply (Telegram careers-page links): submit straight away, but
-    // only when the form is complete, on its last page, and no CAPTCHA showed.
-    if (t.payload.auto_submit === true) {
-      const { addEvent, getSession } = await import('@/lib/apply/sessions')
-      const s = await getSession(sid)
-      const captcha = s?.fill_plan?.warnings.some((w) => /captcha/i.test(w))
-      if (s?.status === 'reviewing' && s.fill_plan?.final_step_reached && !captcha) {
-        await addEvent(sid, 'submit.auto', 'system', { reason: 'every required answer filled' })
-        await withSessionFailure(sid, () => runSubmit(sid))
-      }
-    }
     return { ok: true }
   },
   async 'apply.answers'(t) {
@@ -93,34 +82,6 @@ export const HANDLERS: Record<string, Handler> = {
   async 'apply.focus'(t) {
     const { focusPage } = await import('@/lib/apply/executor')
     return { focused: await focusPage(num(t.payload.session_id, 'session_id')) }
-  },
-  async 'apply.gform'(t) {
-    // Every Google Form: answers worked out (incl. AI), then sent directly or
-    // through the signed-in browser.
-    const { runGform } = await import('@/lib/apply/gform-browser')
-    return runGform(num(t.payload.application_id, 'application_id'))
-  },
-  async 'llm.gform_prepare'(t) {
-    // "Fill with AI": answers on the post, nothing sent.
-    const { prepareWithAi } = await import('@/lib/apply/gform-prepare')
-    return prepareWithAi(num(t.payload.application_id, 'application_id'), { redo: t.payload.redo === true })
-  },
-  async 'apply.gform_focus'(t) {
-    const { focusForm } = await import('@/lib/apply/gform-browser')
-    return { focused: await focusForm(num(t.payload.application_id, 'application_id')) }
-  },
-  async 'browser.google_signin'() {
-    const { googleSignIn } = await import('@/lib/apply/browser')
-    const { kvSet } = await import('@/lib/tasks/queue')
-    await kvSet('google.signin', { state: 'open', at: new Date().toISOString() })
-    const r = await googleSignIn()
-    await kvSet('google.signin', { ...r, at: new Date().toISOString() })
-    if (r.state === 'signed_in') {
-      // Forms that stopped for a Google account can go now.
-      const { reopenSignInForms } = await import('@/lib/server/service')
-      await reopenSignInForms({ signedIn: true }).catch(() => 0)
-    }
-    return r
   },
   async 'browser.open_profile'(t) {
     const { openProfileWindow } = await import('@/lib/apply/browser')

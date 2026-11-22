@@ -39,8 +39,6 @@ export interface JobFacets {
 
 export interface ApplyDetail {
   session: ApplySession
-  /** Set when this run applies a Telegram post (then job is null). */
-  post?: { id: number; job_title: string | null; company: string | null; channel: string | null; apply_url: string | null } | null
   job: JobDetail | null
   versions: Omit<ResumeVersion, 'latex'>[]
   events: SessionEvent[]

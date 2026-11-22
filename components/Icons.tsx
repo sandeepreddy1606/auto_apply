@@ -246,13 +246,6 @@ export const AlertIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
-export const InboxIcon = (p: SVGProps<SVGSVGElement>) => (
-  <svg {...base} {...p}>
-    <path d="M3.5 13.5 6 5.5h12l2.5 8v5a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5v-5z" />
-    <path d="M3.5 13.5h5l1.5 2.5h4l1.5-2.5h5" />
-  </svg>
-)
-
 export const PinIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base} {...p}>
     <path d="M12 21s-6.5-5.6-6.5-11A6.5 6.5 0 0 1 18.5 10c0 5.4-6.5 11-6.5 11z" />

@@ -1,48 +1,13 @@
-/** SMTP email sending with template rendering and resume attachment. */
-import fs from 'node:fs'
-import path from 'node:path'
-
+/** SMTP email sending — used for account emails (the password-reset code). */
 import nodemailer from 'nodemailer'
 
-import type { Application, Profile, SmtpConfig } from '@/lib/types'
-
-const PLACEHOLDER_RE = /\{([a-z_]+)\}/g
-
-/** Replace {key} placeholders; unknown keys become empty strings. */
-export function renderTemplate(
-  template: string,
-  context: Record<string, unknown>,
-): string {
-  const rendered = (template || '').replace(PLACEHOLDER_RE, (_, k: string) =>
-    String(context[k] ?? ''),
-  )
-  // Drop lines like "LinkedIn:" / "- Notice period:" whose value came out empty.
-  const kept = rendered
-    .split('\n')
-    .filter((line) => !/^\s*[-•]?\s*[A-Za-z ]{2,30}:\s*$/.test(line))
-    .join('\n')
-  return kept.replace(/\n{3,}/g, '\n\n').trim()
-}
-
-export function buildContext(
-  profile: Partial<Profile>,
-  application: Partial<Application>,
-): Record<string, unknown> {
-  return {
-    ...profile,
-    job_title: application.job_title || 'the advertised position',
-    company: application.company || '',
-    location: application.location || '',
-    experience: application.experience || '',
-  }
-}
+import type { SmtpConfig } from '@/lib/types'
 
 export async function sendEmail(
   smtpCfg: Partial<SmtpConfig>,
   toAddr: string,
   subject: string,
   body: string,
-  attachmentPath?: string | null,
 ): Promise<void> {
   const host = (smtpCfg.host || '').trim()
   const port = Number(smtpCfg.port || 587)
@@ -54,16 +19,6 @@ export async function sendEmail(
     throw new Error('SMTP is not configured. Set host/username/password in Settings.')
   }
   if (!toAddr) throw new Error('No recipient email address.')
-
-  const attachments: { filename: string; content: Buffer }[] = []
-  if (attachmentPath) {
-    const p = attachmentPath.trim().replace(/^"|"$/g, '')
-    if (!fs.existsSync(p) || !fs.statSync(p).isFile()) {
-      throw new Error(`Resume file not found: ${p}`)
-    }
-    // Read before opening the SMTP connection so a bad path fails fast.
-    attachments.push({ filename: path.basename(p), content: fs.readFileSync(p) })
-  }
 
   const secure = Boolean(smtpCfg.use_ssl) || port === 465
   const transport = nodemailer.createTransport({
@@ -83,7 +38,6 @@ export async function sendEmail(
       to: toAddr,
       subject,
       text: body,
-      attachments,
     })
   } finally {
     transport.close()

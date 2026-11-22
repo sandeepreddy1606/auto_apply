@@ -1,11 +1,9 @@
 /**
- * Boots the background work that the FastAPI `@app.on_event("startup")` hook
- * used to run: the Telegram listener and the periodic company-scan loop.
+ * Boots the background work: the periodic company-scan loop, a one-time
+ * re-score when the job-description reader changes, and the worker.
  *
- * start() runs once per server process (from instrumentation.ts). `next start` runs a single
- * process, which is what the MTProto session requires — it must have exactly
- * one holder. The guard below also keeps dev-mode hot reloads from starting a
- * second listener.
+ * start() runs once per server process (from instrumentation.ts). The guard
+ * below keeps dev-mode hot reloads from starting it twice.
  */
 const STARTED = Symbol.for('autoapply.instrumentation.started')
 type GlobalFlag = typeof globalThis & { [STARTED]?: boolean }
@@ -18,18 +16,8 @@ export async function start(): Promise<void> {
   // education, current role) into empty profile fields so autofill works.
   void prefillProfileOnce().catch((e) => console.warn('[autoapply.startup] profile prefill skipped:', e))
 
-  // Page audits and other throwaway servers: no Telegram, scans or worker.
+  // Page audits and other throwaway servers: no scans or worker.
   if (process.env.AUTO_APPLY_NO_BACKGROUND === '1') return
-
-  const [{ manager }, service] = await Promise.all([import('@/lib/server/telegram'), import('@/lib/server/service')])
-
-  manager.setIngestCallback(service.ingestFromTelegram)
-  // One-time data fixes (re-opening Google Forms that stopped for sign-in,
-  // adding details to older posts) run in the worker at its start — the
-  // worker restarts itself on new code, so they always run.
-  void manager.tryAutostart().catch((e) => {
-    console.warn('[autoapply.startup] telegram autostart failed:', e)
-  })
 
   void companyScanLoop()
 

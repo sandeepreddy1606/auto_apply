@@ -13,7 +13,6 @@ export const POST = handler(async (req: Request) => {
       body.to || '',
       'Auto Apply - test email',
       'This is a test email from your Auto Apply system. SMTP works!',
-      settings.profile.resume_path || null,
     )
   } catch (e) {
     throw new HttpError(400, (e as Error).message)

@@ -24,9 +24,7 @@ const PAGES: [string, string, Icon, string?][] = [
   ['/', 'Overview', GridIcon],
   ['/jobs', 'Jobs', BriefcaseIcon, 'Matches from career pages'],
   ['/tracker', 'Applications', KanbanIcon, 'Everything you applied to'],
-  ['/claude-applications', 'Applications through Claude', SparkIcon, 'Jobs Claude applied to on Naukri and career sites'],
   ['/companies', 'Companies', BuildingIcon, 'Openings and watched career pages'],
-  ['/applications', 'Telegram inbox', ListIcon],
 ]
 const SETTINGS: [string, string, Icon][] = [
   ['/settings/setup', 'Setup & health', HeartbeatIcon],
@@ -37,9 +35,7 @@ const SETTINGS: [string, string, Icon][] = [
   ['/settings/profile', 'Profile', ListIcon],
   ['/settings/ai', 'AI', SparkIcon],
   ['/settings/apply', 'Apply automation', BoltIcon],
-  ['/settings/telegram', 'Telegram', SendIcon],
-  ['/settings/email', 'Email sending', MailIcon],
-  ['/settings/automation', 'Automation', GearIcon],
+  ['/settings/email', 'Email (password reset)', MailIcon],
   ['/settings/security', 'Account & security', LockIcon],
 ]
 
@@ -78,7 +74,6 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
     }
     const all: Item[] = [
       ...PAGES.map(([to, label, Icon, sub]) => ({ id: to, group: 'Go to', label, sub, Icon, run: go(to) })),
-      { id: 'act-paste', group: 'Actions', label: 'Paste a job message', Icon: PlusSquare, run: go('/paste') },
       { id: 'act-company', group: 'Actions', label: 'Add a company career page', Icon: BuildingIcon, run: go('/companies') },
       { id: 'act-light', group: 'Actions', label: 'Switch to light theme', Icon: SunIcon, run: () => { applyTheme('light'); onClose() } },
       { id: 'act-dark', group: 'Actions', label: 'Switch to dark theme', Icon: MoonIcon, run: () => { applyTheme('dark'); onClose() } },

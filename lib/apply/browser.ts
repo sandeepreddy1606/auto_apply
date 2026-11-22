@@ -8,9 +8,8 @@
  */
 import type { BrowserContext, Page } from 'playwright'
 
-import { browserKind, chromeExecutable, profileDir } from '@/lib/apply/browser-choice'
+import { browserKind, profileDir } from '@/lib/apply/browser-choice'
 import type { BrowserKind } from '@/lib/apply/browser-choice'
-import { contextHasGoogleSession, profileHasGoogleSession } from '@/lib/apply/google-account'
 import * as settingsStore from '@/lib/server/settings'
 
 /** The bundled-Chromium profile (the default). Use profileDir() for the active one. */
@@ -75,10 +74,7 @@ export function isAllowedHost(host: string, jobHost: string, extra: string[]): b
   return allowed.some((d) => h === d || h.endsWith(`.${d}`))
 }
 
-/**
- * The automation browser. `headless` overrides Settings for one use: hidden
- * work (Google Forms) asks for a hidden browser on the same profile.
- */
+/** The automation browser. `headless` overrides Settings for one use. */
 export async function getContext(opts: { headless?: boolean } = {}): Promise<BrowserContext> {
   const st = state()
   const headless = opts.headless ?? settingsStore.load().apply_automation.headless
@@ -195,39 +191,6 @@ export function blockedHosts(sessionId: number): string[] {
   return [...(state().blocked.get(sessionId) ?? [])]
 }
 
-/** A page in the visible browser that the app didn't open for an application (e.g. you signing in to a site). */
-function userBusy(st: State): boolean {
-  if (!st.ctx || st.headless) return false
-  const ours = new Set(st.pages.values())
-  return [...st.pages.values()].some((p) => !p.isClosed()) || st.ctx.pages().some((p) => !p.isClosed() && !ours.has(p) && p.url() !== 'about:blank')
-}
-
-/**
- * A page for work you don't need to watch (Google Forms): a hidden browser on
- * the same profile, so no window or tab pops up. When the visible browser is
- * in use (an application waiting for your review, a site you're signed into),
- * the profile can't be opened twice — the page opens there instead.
- */
-export async function hiddenPageFor(key: number, url: string): Promise<{ page: Page; hidden: boolean }> {
-  const st = state()
-  await closePage(key)
-  if (userBusy(st)) return { page: await newPageFor(key, url), hidden: false }
-  const ctx = await getContext({ headless: true })
-  const page = await ctx.newPage()
-  state().blocked.delete(key)
-  await guard(page, key, new URL(url).hostname)
-  track(key, page)
-  return { page, hidden: true }
-}
-
-/** After hidden work: close the hidden browser when nothing else uses it, so the visible one can start. */
-export async function releaseHidden(): Promise<void> {
-  const st = state()
-  if (!st.ctx || !st.headless || settingsStore.load().apply_automation.headless) return
-  if ([...st.pages.values()].some((p) => !p.isClosed())) return
-  await closeAll()
-}
-
 export async function closePage(sessionId: number): Promise<void> {
   const p = state().pages.get(sessionId)
   state().pages.delete(sessionId)
@@ -280,103 +243,4 @@ export async function openProfileWindow(url = 'about:blank'): Promise<void> {
   const page = await ctx.newPage()
   if (url !== 'about:blank') await page.goto(url).catch(() => {})
   await page.bringToFront().catch(() => {})
-}
-
-export type GoogleSignInResult = {
-  /** signed_in: Google's session is in the profile. not_signed_in: the window closed without it. */
-  state: 'signed_in' | 'not_signed_in' | 'timed_out' | 'busy' | 'failed'
-  browser: BrowserKind
-  message?: string
-}
-
-/**
- * Is the automation profile signed in to Google? Asks the running browser
- * when it's open (its cookie file is locked then), else reads the file.
- */
-export async function googleSessionState(): Promise<boolean | null> {
-  const ctx = state().ctx
-  if (ctx) return contextHasGoogleSession(ctx).catch(() => null)
-  return profileHasGoogleSession(profileDir())
-}
-
-/**
- * "Sign in to Google": open the automation profile as an ordinary browser
- * window — started by the app, but NOT under automation (no WebDriver, no
- * DevTools pipe), which is what Google's sign-in refuses — at Google's
- * sign-in page. You sign in yourself; the app never sees the password.
- * Close the window when done: the result says whether Google's session is
- * now in the profile, so "done" always means really signed in.
- *
- * Google Forms that need an account then open signed in, because the
- * automation reuses this same profile.
- */
-export async function googleSignIn(maxMinutes = 20): Promise<GoogleSignInResult> {
-  await closeAll() // the profile can be open in one browser at a time
-  const kind = browserKind()
-  let exe: string | null
-  if (kind === 'chrome') exe = chromeExecutable()
-  else {
-    const { chromium } = await import('playwright')
-    exe = chromium.executablePath()
-  }
-  const fs = await import('node:fs')
-  if (!exe || !fs.existsSync(exe)) {
-    return { state: 'failed', browser: kind, message: kind === 'chrome' ? 'Google Chrome was not found.' : 'Chromium for Playwright is not installed. Install it from Settings → Setup & health.' }
-  }
-  const dir = profileDir(kind)
-  fs.mkdirSync(dir, { recursive: true })
-  const { spawn } = await import('node:child_process')
-  const startedAt = Date.now()
-  const child = spawn(
-    exe,
-    [
-      `--user-data-dir=${dir}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--new-window',
-      'https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fdocs.google.com%2Fforms%2Fu%2F0%2F',
-    ],
-    { stdio: 'ignore', windowsHide: false },
-  )
-  const outcome = await new Promise<'closed' | 'timeout' | 'error'>((resolve) => {
-    const timer = setTimeout(() => {
-      try {
-        child.kill()
-      } catch {
-        /* already closed */
-      }
-      resolve('timeout')
-    }, maxMinutes * 60_000)
-    child.on('exit', () => {
-      clearTimeout(timer)
-      resolve('closed')
-    })
-    child.on('error', () => {
-      clearTimeout(timer)
-      resolve('error')
-    })
-  })
-  if (outcome === 'error') return { state: 'failed', browser: kind, message: 'The browser could not be started.' }
-  // A browser that exits within seconds handed the window to another copy
-  // already running on this profile, so we can't tell when you finish.
-  if (outcome === 'closed' && Date.now() - startedAt < 4_000) {
-    return {
-      state: 'busy',
-      browser: kind,
-      message: 'The automation browser profile is already open in another window. Close every automation browser window, then press “Sign in to Google” again.',
-    }
-  }
-  // Let the browser finish writing its cookie file.
-  await new Promise((r) => setTimeout(r, 1_500))
-  const signed = await profileHasGoogleSession(dir)
-  if (signed) return { state: 'signed_in', browser: kind }
-  if (outcome === 'timeout') return { state: 'timed_out', browser: kind, message: 'The sign-in window was open for too long and was closed.' }
-  return {
-    state: 'not_signed_in',
-    browser: kind,
-    message:
-      kind === 'chromium' && chromeExecutable()
-        ? 'The window closed before a Google account was signed in. If Google said “This browser or app may not be secure”, switch the browser to Google Chrome in Settings → Apply automation, then sign in again.'
-        : 'The window closed before a Google account was signed in. Sign in fully (until you see Google Forms), then close the window.',
-  }
 }

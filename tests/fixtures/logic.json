@@ -1,19 +1,35 @@
 {
   "keyword_cases": [
     {
-      "profile": { "skills": "React, Node.js, TypeScript, Go", "current_role": "Frontend Developer", "experience_years": "3 years" },
+      "profile": {
+        "skills": "React, Node.js, TypeScript, Go",
+        "current_role": "Frontend Developer",
+        "experience_years": "3 years"
+      },
       "extra": "fullstack, next.js"
     },
     {
-      "profile": { "skills": "Python; Machine Learning / AI", "current_role": "Data Scientist", "experience_years": "8" },
+      "profile": {
+        "skills": "Python; Machine Learning / AI",
+        "current_role": "Data Scientist",
+        "experience_years": "8"
+      },
       "extra": ""
     },
     {
-      "profile": { "skills": "qa, selenium, c#", "current_role": "", "experience_years": "1.5" },
+      "profile": {
+        "skills": "qa, selenium, c#",
+        "current_role": "",
+        "experience_years": "1.5"
+      },
       "extra": "manual testing"
     },
     {
-      "profile": { "skills": "", "current_role": "", "experience_years": "" },
+      "profile": {
+        "skills": "",
+        "current_role": "",
+        "experience_years": ""
+      },
       "extra": ""
     }
   ],
@@ -32,95 +48,5 @@
     "Director of Engineering",
     "Graduate Trainee - Python",
     "TypeScript SDK Maintainer"
-  ],
-  "render_context": {
-    "job_title": "Frontend Developer",
-    "full_name": "Ada Lovelace",
-    "experience_years": "3 years",
-    "skills": "React, Node",
-    "current_location": "",
-    "notice_period": "",
-    "linkedin": "https://linkedin.com/in/ada",
-    "github": "",
-    "portfolio": "",
-    "phone": "+911234567890",
-    "email": "ada@example.com"
-  },
-  "templates": [
-    "Application for {job_title} - {full_name}",
-    "Dear Team,\n\nSummary:\n- Experience: {experience_years}\n- Key skills: {skills}\n- Current location: {current_location}\n- Notice period: {notice_period}\n\nLinks:\nLinkedIn: {linkedin}\nGitHub: {github}\nPortfolio: {portfolio}\n\nRegards,\n{full_name}\n{phone}\n{email}",
-    "Hello {unknown_key}, applying for {job_title}.\n\n\n\nThanks",
-    ""
-  ],
-  "question_titles": [
-    "Full Name",
-    "First name",
-    "Last Name",
-    "Company Name",
-    "College name",
-    "Your Name",
-    "Email ID",
-    "Mobile Number",
-    "Total years of experience",
-    "Current CTC",
-    "Expected CTC (in LPA)",
-    "Notice Period",
-    "Current Company",
-    "LinkedIn Profile",
-    "GitHub",
-    "Upload your CV",
-    "Preferred Location",
-    "Current Location",
-    "Are you willing to relocate?",
-    "Gender",
-    "Date of Birth",
-    "Skills / Tech stack",
-    "Why do you want to join us?",
-    "Passing year",
-    "Random unmatched question"
-  ],
-  "profile": {
-    "full_name": "Ada Lovelace",
-    "email": "ada@example.com",
-    "phone": "+911234567890",
-    "current_location": "Pune",
-    "preferred_location": "Remote",
-    "experience_years": "3 years",
-    "current_company": "Analytical Engines Ltd",
-    "current_role": "Frontend Developer",
-    "notice_period": "30 days",
-    "current_ctc": "10 LPA",
-    "expected_ctc": "18 LPA",
-    "skills": "React, Node, TypeScript",
-    "degree": "B.Tech",
-    "college": "IIT",
-    "graduation_year": "2021",
-    "gender": "Female",
-    "date_of_birth": "1995-12-10",
-    "willing_to_relocate": "Yes",
-    "linkedin": "https://linkedin.com/in/ada",
-    "github": "https://github.com/ada",
-    "portfolio": "",
-    "resume_url": "https://drive.example.com/cv",
-    "cover_note": "I love building UIs."
-  },
-  "form": {
-    "title": "Test Form",
-    "description": "",
-    "url": "https://docs.google.com/forms/d/e/X/viewform",
-    "submit_url": "https://docs.google.com/forms/d/e/X/formResponse",
-    "fbzx": "123",
-    "collects_email": true,
-    "page_count": 1,
-    "fields": [
-      { "item_id": 1, "entry_id": 101, "title": "Full Name", "description": "", "type_code": 0, "type": "short_answer", "required": true, "options": [], "supported": true },
-      { "item_id": 2, "entry_id": 102, "title": "Phone", "description": "", "type_code": 0, "type": "short_answer", "required": true, "options": [], "supported": true },
-      { "item_id": 3, "entry_id": 103, "title": "Are you willing to relocate?", "description": "", "type_code": 2, "type": "multiple_choice", "required": true, "options": ["Yes", "No"], "supported": true },
-      { "item_id": 4, "entry_id": 104, "title": "Skills", "description": "", "type_code": 4, "type": "checkboxes", "required": false, "options": ["React", "Vue", "Node", "Django"], "supported": true },
-      { "item_id": 5, "entry_id": 105, "title": "Date of Birth", "description": "", "type_code": 9, "type": "date", "required": false, "options": [], "supported": true },
-      { "item_id": 6, "entry_id": 106, "title": "Upload your resume", "description": "", "type_code": 13, "type": "file_upload", "required": true, "options": [], "supported": false },
-      { "item_id": 7, "entry_id": 107, "title": "Why do you want to join?", "description": "", "type_code": 1, "type": "paragraph", "required": false, "options": [], "supported": true },
-      { "item_id": 8, "entry_id": 108, "title": "Referrer name", "description": "", "type_code": 0, "type": "short_answer", "required": true, "options": [], "supported": true }
-    ]
-  }
+  ]
 }

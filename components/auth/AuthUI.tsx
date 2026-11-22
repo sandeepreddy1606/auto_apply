@@ -17,7 +17,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           </div>
           <h2>Your job search, on autopilot — with you in control.</h2>
           <ul className="auth-points">
-            <li><b>Every job in one place.</b> Career pages and Telegram posts, ranked for your profile.</li>
+            <li><b>Every job in one place.</b> Openings from the career pages you watch, ranked for your profile.</li>
             <li><b>A tailored resume per job.</b> ATS-friendly LaTeX you can edit before it’s sent.</li>
             <li><b>Autofill you can review.</b> Nothing is submitted until you approve it.</li>
           </ul>

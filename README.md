@@ -1,31 +1,39 @@
-# Auto Apply
+# Auto Apply — careers-site jobs
 
-Automated job-application system. It listens to private Telegram channels for
-job posts, parses each message with **pure rules (regex + keyword heuristics —
-no AI models)**, and applies for you:
+Finds jobs on the career pages you choose and applies to them with you in
+control:
 
-- Post contains an **HR email** → sends a templated application email with your
-  resume attached (SMTP).
-- Post contains a **Google Form** → fetches the form, auto-fills the questions
-  from your saved profile, and submits it programmatically.
+1. **Watch companies.** Add any company's careers page (Greenhouse, Lever,
+   Ashby, Workday, Workable, SmartRecruiters and more), or search Amazon,
+   Google and Microsoft by your roles and locations. Scans run in the
+   background on a schedule.
+2. **See the jobs that fit.** Every opening gets its full description and a
+   relevance score from your target roles, skills, experience and locations,
+   with filters for experience, work mode, job type, seniority, location and
+   salary.
+3. **Apply.** Tailor your LaTeX resume for the job (or attach a PDF). The app
+   then fills the application in a real browser from your profile and saved
+   answers. You review every field, and nothing is submitted until you approve.
+4. **Track it.** Applications move from started to applied, screening,
+   interview and offer.
 
-A web dashboard lets you review every message, edit the parsed details, preview
-the email / form answers, apply with one click, and track statuses
-(review / applied / failed / manual / skipped).
+This branch (`career_flow`) contains only the careers-site flow. The Telegram
+posts, Google Forms and HR-email flows live on the `development` branch.
 
 ## Stack
 
 | Part      | Tech |
 |-----------|------|
 | Framework | Next.js 16 (App Router) + React 19 + TypeScript |
-| Runtime   | Node.js 24 — one process serves the UI, the API, the Telegram listener and the scan loop |
-| Telegram  | teleproto (MTProto user client) |
-| Email      | nodemailer (SMTP) |
+| Runtime   | Node.js — the web server, plus a worker process for scans, browser automation and AI calls |
+| Browser   | Playwright (Chromium, or your installed Google Chrome) |
+| AI        | Claude Code CLI on your own plan (or manual copy/paste) — no paid API |
+| Resume    | LaTeX (MiKTeX / TeX Live) — optional, uploaded PDFs work without it |
 | Storage   | PostgreSQL when `DATABASE_URL` is set, otherwise a local SQLite file via `node:sqlite` |
-| Data      | `data/auto_apply.db`, `data/settings.json`, `data/telegram.session.txt`, `data/resumes/` |
+| Data      | `data/auto_apply.db`, `data/settings.json`, `data/resumes/`, `data/browser-profile/` |
 
-Background work (the Telegram listener and the periodic career-page scan) starts
-from `instrumentation.ts`, which Next.js runs once per server process.
+Background work (the company-scan loop and the worker) starts from
+`instrumentation.ts`, which Next.js runs once per server process.
 
 ## Run
 
@@ -69,13 +77,14 @@ npm test             # parity + unit tests (see Tests below)
 - **First run:** the app opens on **Create account**: name, email and password.
   You then get a one-time **recovery code**; save it. Sign-up closes after
   this first account, because the app holds one person's profile, resumes and
-  Telegram login.
+  settings.
 - **Sign in** with your email and password. "Keep me signed in" lasts 30 days.
   Untick it on a shared computer, and the session ends when the browser closes
   or after 12 idle hours. Five wrong passwords lock sign-in for 15 minutes.
 - **Forgot password:** use your recovery code, or an emailed 6-digit code if
-  SMTP is set up. If you've lost both, run `npm run auth:recover` on the
-  computer running the app; it prints a new recovery code.
+  email is set up (Settings → Email). If you've lost both, run
+  `npm run auth:recover` on the computer running the app; it prints a new
+  recovery code.
 - **Settings → Account & security:** change your name or email, change your
   password (this signs out other devices), make a new recovery code, see every
   signed-in device and sign any of them out.
@@ -84,99 +93,31 @@ npm test             # parity + unit tests (see Tests below)
   else changes.
 - **How it's stored:** passwords are hashed with scrypt. Sessions are random
   tokens kept in an httpOnly cookie, and only their hash is stored. Writes made
-  with the cookie from another site are blocked. The browser extension still
-  works; it uses the same token as a bearer header.
+  with the cookie from another site are blocked. Scripts can send the same
+  token as a bearer header.
 
 ## Setup (one time, in the UI → Settings)
 
-1. **Profile** — name, email, phone, experience, skills, links, and:
-   - `Resume file path` — local PDF attached to application emails.
-   - `Resume link` — Drive/URL pasted into "resume link" form questions.
-2. **SMTP** — for Gmail: enable 2-Step Verification → create an
-   **App password** → use it as the password. Send yourself a test email.
-3. **Email template** — subject/body with `{job_title}`-style placeholders.
-   Lines whose placeholder is empty are dropped automatically.
-4. **Telegram** — create API credentials at
-   [my.telegram.org](https://my.telegram.org) → *API development tools*.
-   Enter api_id / api_hash / phone → **Connect** → enter the login code
-   (and 2FA password if set). This uses *your* account, so private groups
-   you've joined work, with no bot needed.
-   - **Add a job group by name:** under **Job groups**, type the group's name
-     (or its @username or t.me link). Choose how far back to read (today, 3
-     days, a week…) and press **Watch**.
-   - **What happens next:** its job posts land in the **Telegram inbox**,
-     separate from the career-page Jobs list. New posts arrive as they're
-     posted. Posts made while the app was off are picked up when it
-     reconnects, and it re-checks every 15 minutes.
-   - **Hidden links are kept:** links behind words ("Apply here") and on
-     buttons are recovered.
-5. **Automation** (optional):
-   - Auto-send emails and/or auto-submit Google Forms for incoming posts.
-     Auto-submit only fires when every required form question was confidently
-     auto-filled; anything uncertain stays in **review**.
-   - **Careers-page links** have two switches. Pressing Apply can submit once
-     the form is complete (on by default). Applying can also start on its own
-     when a post arrives (off by default).
-
-**Apply on a Telegram post.** One button, three ways, chosen by what the post
-asks for:
-
-| The post says | Apply does |
-|---|---|
-| Send your resume to hr@… | Sends the email with your resume |
-| A Google Form link | Fills it from your profile and submits it |
-| A careers-page link | Follows short links to the real page, then opens it in the automation browser. Attaches your PDF resume (tagged for the role, else your default) and fills the form from your profile and application answers. Submits when every required answer is filled, it's on the last page and no CAPTCHA showed |
-
-**When a careers page needs you:**
-- Sign-ins, CAPTCHAs, legal consent boxes and questions it can't answer stop
-  the run, and the post shows what it needs.
-- **Finish** opens the form review, with every field and screenshots.
-- **Apply to all** applies every ready post. Careers pages are filled one after
-  another in the background.
-
-**Kept separate from career-page jobs.** These runs use the same browser engine
-as the career-page flow, but belong to the Telegram post. They never appear in
-Jobs, Companies or the Applications tracker. They do count toward the daily
-limit in Settings → Apply automation.
-
-You can also test without Telegram: sidebar → **Paste message**.
-
-## How each message flows
-
-```
-Telegram message ──▶ rule-based parser
-                       ├─ finds Google Form link  → method: gform
-                       ├─ else finds an email     → method: email
-                       └─ else                    → status: manual
-                     extracts: role, company, location, experience,
-                     CTC, skills, batch, deadline, custom subject line
-                            │
-                    Applications queue (review)
-                            │
-        ┌───────────────────┴────────────────────┐
-   Email: preview/edit rendered                Google Form: schema fetched from
-   subject+body, resume attached,              the public page, questions mapped
-   send via SMTP                               to your profile by keywords,
-                                               unanswered required ones highlighted,
-                                               submitted via the same POST the
-                                               browser makes
-```
-
-### Google Form limitations (shown in the UI, never silent)
-
-- Forms that **require Google sign-in** and **file-upload questions** cannot be
-  automated — those applications are flagged so you can apply manually via the
-  link.
-- Grid questions are unsupported and flagged the same way.
+1. **Job preferences** — target roles, seniority, locations, include/exclude
+   keywords. Only matching titles count as relevant.
+2. **Profile** — name, email, phone, experience, skills and links. Filled from
+   your resume where it can be; used to fill application forms.
+3. **Resume** — your LaTeX resume (tailored per job), and/or **Resumes (PDF)**
+   tagged by role, which work without LaTeX.
+4. **Application answers** — work authorization, notice period, pay,
+   relocation, work modes, voluntary disclosures. Answers you type during a
+   review are learned and reused.
+5. **AI** — Claude Code on your own plan, or manual copy/paste.
+6. **Apply automation** — visible or headless browser, which browser, daily
+   limit, sites the browser may open.
+7. **Email** (optional) — SMTP, only so "Forgot password" can email you a code.
 
 ## Notes
 
-- Duplicate messages (same normalized text) are ignored.
-- All credentials stay on your machine in `data/settings.json` — the folder is
-  gitignored; don't commit it.
-- The Telegram session auto-reconnects on server restart.
-- Run **one** instance at a time: the MTProto session must have a single holder,
-  so scaling to multiple replicas would log the others out.
+- All credentials stay on your machine in `data/` — the folder is gitignored;
+  don't commit it.
+- The database keeps the tables the full app uses (e.g. Telegram posts), so the
+  same `data/` folder works on this branch and on `development`.
 
 ## Career-page apply flow
 
@@ -306,18 +247,22 @@ answers, AI and Apply automation.
 
 ## Branches
 
-- **`development`** is where all work happens. It always holds the complete,
-  current code. Commit to it (or to a short-lived branch made from it and merged
-  back), then push it.
-- **`main`** is the stable line: `development` is merged into it through a pull
-  request when a set of changes is ready.
+- **`career_flow`** (this branch) holds only the careers-site jobs flow:
+  companies, scanning, jobs and matching, resume tailoring, careers-page apply,
+  the tracker, accounts and settings.
+- **`development`** holds the complete app: this flow plus the Telegram posts,
+  Google Forms and HR-email flows. **`main`** is the stable line, updated from
+  `development` by pull request.
+- A careers-site change made here can be brought to `development` with
+  `git cherry-pick`, and the reverse; keep each commit to one flow so that stays
+  easy.
 - Never committed (see `.gitignore`): `data/` (your database, settings, resumes,
-  the signed-in browser profile, the Telegram session), `.env`, `node_modules/`
-  and build output (`.next/`, `next-env.d.ts`, `*.tsbuildinfo`). A fresh clone
-  creates `data/` on first run; copy your own `data/` across to keep your setup.
+  the signed-in browser profile), `.env`, `node_modules/` and build output
+  (`.next/`, `next-env.d.ts`, `*.tsbuildinfo`). A fresh clone creates `data/` on
+  first run; copy your own `data/` across to keep your setup.
 
 ```bash
-git switch development && git pull     # start of a session
+git switch career_flow && git pull     # start of a session on this flow
 npm test                                # before committing
 git add -A && git commit -m "…" && git push
 ```
@@ -325,15 +270,14 @@ git add -A && git commit -m "…" && git push
 ## Tests
 
 ```bash
-npm test                    # unit: parity + auth/settings + career flow + Google Forms (170 tests)
-npm run build && npm run test:integration   # browser + full-stack (33 tests)
+npm test                    # unit: parity + auth/settings + career flow (147 tests)
+npm run build && npm run test:integration   # browser + full-stack (29 tests)
 AA_LIVE=1 node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve.mjs \
   --test tests/live/tailor-live.test.ts     # one real Claude Code call (uses your Pro limit)
 ```
 
-- **Golden parity** — pins message parsing, job-title matching, email template
-  rendering and Google Form field mapping against snapshots in
-  `tests/fixtures/golden/`. Those snapshots were generated by the original Python
+- **Golden parity** — pins the scanner's job-title matching against snapshots
+  in `tests/fixtures/golden/`. Those snapshots were generated by the original Python
   implementation and verified byte-identical against this port before the Python
   was removed, so a diff here means behaviour drifted from the system this
   replaced.
@@ -361,8 +305,3 @@ AA_LIVE=1 node --experimental-strip-types --no-warnings --import ./scripts/ts-re
 
 Data carries over: `data/auto_apply.db`, `data/settings.json`, `data/auth.json`
 and `data/resumes/` are read unchanged, and the schema is identical.
-
-The one thing that does not carry over is the Telegram login. Telethon stored a
-SQLite session at `data/telegram.session`; teleproto stores a string session at
-`data/telegram.session.txt`. Reconnect once via **Settings → Telegram** (phone →
-code → 2FA), then re-tick your watched channels.

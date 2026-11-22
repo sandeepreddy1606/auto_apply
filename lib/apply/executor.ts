@@ -43,11 +43,6 @@ export { resumeFileName }
 
 const MAX_STEPS = 8
 
-async function getPostSummary(id: number): Promise<{ job_title: string | null; company: string | null; location: string | null; raw_text: string } | null> {
-  const r = await sql.one('SELECT job_title, company, location, raw_text FROM applications WHERE id = ?', [id])
-  return r ? { job_title: (r.job_title as string) ?? null, company: (r.company as string) ?? null, location: (r.location as string) ?? null, raw_text: String(r.raw_text ?? '') } : null
-}
-
 /** Copy the locked PDF to a recruiter-friendly file name for upload. */
 function stageResume(sessionId: number, pdfPath: string, fileName: string): string {
   const dir = path.join(ARTIFACTS_DIR, String(sessionId), 'upload')
@@ -134,14 +129,7 @@ async function draftOpenAnswers(sessionId: number, fields: FormField[], plan: Fi
   const pending = fields.filter((f) => plan.answers[f.id]?.note === 'pending-generation')
   if (!pending.length) return
   const s = await getSession(sessionId)
-  // A scanned job, or a Telegram post (whose message text is the description).
-  const scanned = s && s.job_id > 0 ? await getJob(s.job_id) : null
-  const post = s?.post_id ? await getPostSummary(s.post_id) : null
-  const job = scanned
-    ? scanned
-    : post
-      ? { title: post.job_title || '', company_name: post.company || '', location: post.location, description_text: s?.jd_snapshot ?? post.raw_text }
-      : null
+  const job = s && s.job_id > 0 ? await getJob(s.job_id) : null
   const v = s?.resume_version_id ? await getVersion(s.resume_version_id) : null
   let resumeText = v?.ats_report?.text_preview ?? ''
   if (!resumeText) {

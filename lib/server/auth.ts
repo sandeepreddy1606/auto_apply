@@ -2,13 +2,13 @@
  * Accounts and sessions.
  *
  * - One owner account, created on first run through the sign-up page (the app
- *   keeps one person's profile, resume and Telegram login, so a second account
+ *   keeps one person's profile, resume and settings, so a second account
  *   would see the same data — sign-up closes once the owner exists).
  * - Passwords are hashed with scrypt. Hashes from the old single-password
  *   build (PBKDF2 in data/auth.json) still verify and are upgraded on use.
  * - Sessions are random tokens; only their SHA-256 is stored, in `sessions`.
- *   The browser gets them in an httpOnly cookie. API clients (the browser
- *   extension, scripts) may send the same token as `Authorization: Bearer`.
+ *   The browser gets them in an httpOnly cookie. API clients (scripts) may
+ *   send the same token as `Authorization: Bearer`.
  * - Forgot password: a one-time recovery code shown at sign-up, or a 6-digit
  *   code emailed through your SMTP settings when they're configured.
  */

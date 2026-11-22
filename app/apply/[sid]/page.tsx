@@ -142,19 +142,18 @@ export default function ApplyPage({ params }: { params: Promise<{ sid: string }>
   return (
     <div className="wide">
       <PageHeader
-        title={job ? `${job.title}` : d.post?.job_title || `Application #${s.id}`}
+        title={job ? `${job.title}` : `Application #${s.id}`}
         sub={
           <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            {job?.company_name ?? d.post?.company}
-            {d.post && <span className="muted">from {d.post.channel || 'Telegram'}</span>}
+            {job?.company_name}
             {s.ats_type && s.ats_type !== 'custom' ? ` via ${s.ats_type}` : ''} <StatusPill status={s.status} />
           </span>
         }
-        backTo={d.post ? `/applications/${d.post.id}` : '/jobs'}
+        backTo="/jobs"
         actions={
           (job || s.apply_url) && (
             <a className="btn sm" href={s.apply_url ?? job?.url} target="_blank" rel="noreferrer">
-              {d.post ? 'Careers page ↗' : 'Posting ↗'}
+              Posting ↗
             </a>
           )
         }

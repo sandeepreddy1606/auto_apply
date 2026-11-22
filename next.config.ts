@@ -7,9 +7,9 @@ const nextConfig: NextConfig = {
   // standalone build.
   output: process.env.BUILD_STANDALONE ? 'standalone' : undefined,
 
-  // teleproto, pg and nodemailer are CommonJS with dynamic requires — keep them
-  // out of the server bundle so they load from node_modules at runtime.
-  serverExternalPackages: ['teleproto', 'pg', 'nodemailer', 'playwright', 'playwright-core'],
+  // pg and nodemailer are CommonJS with dynamic requires — keep them (and
+  // Playwright) out of the server bundle so they load from node_modules at runtime.
+  serverExternalPackages: ['pg', 'nodemailer', 'playwright', 'playwright-core'],
 
   // data/ is your private runtime data (database, resumes, the automation
   // browser's profile). Never trace it into the build: it isn't code, and the

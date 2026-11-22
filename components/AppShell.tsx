@@ -6,35 +6,21 @@
  * command palette.
  */
 import { usePathname } from 'next/navigation'
-import { createContext, useContext, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { api } from '@/lib/api'
 import { career } from '@/lib/career-api'
-import type { TelegramStatus } from '@/lib/types'
 
 import { AuthProvider, isAuthRoute, useAuth } from './AuthProvider'
 import CommandPalette from './CommandPalette'
-import { BoltIcon, BriefcaseIcon, BuildingIcon, GearIcon, GridIcon, KanbanIcon, ListIcon, SearchIcon, SparkIcon } from './Icons'
+import { BoltIcon, BriefcaseIcon, BuildingIcon, GearIcon, GridIcon, KanbanIcon, SearchIcon } from './Icons'
 import { NavigationProvider, useNavigate } from './Navigation'
 import StaleGuard from './StaleGuard'
 import { ThemeSwitch } from './Theme'
 import { ToastProvider } from './Toast'
 
-interface TgContextValue {
-  tg: TelegramStatus
-  setTg: (s: TelegramStatus) => void
-}
-
-const TgContext = createContext<TgContextValue>({
-  tg: { state: 'disconnected', error: null, watched_chats: [] },
-  setTg: () => {},
-})
-
-/** Live Telegram status, shared by the overview, settings hub and nav. */
-export const useTelegramStatus = () => useContext(TgContext)
-
-type NavKey = '' | 'jobs' | 'tracker' | 'claude-applications' | 'companies' | 'applications' | 'settings'
+type NavKey = '' | 'jobs' | 'tracker' | 'companies' | 'settings'
 interface NavItem { key: NavKey; to: string; label: string; short: string; Icon: typeof GridIcon; mobile: boolean }
 
 /** Grouped the way the work flows: find jobs → apply → set up. */
@@ -44,15 +30,13 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { key: '', to: '/', label: 'Overview', short: 'Home', Icon: GridIcon, mobile: true },
       { key: 'jobs', to: '/jobs', label: 'Jobs', short: 'Jobs', Icon: BriefcaseIcon, mobile: true },
-      { key: 'companies', to: '/companies', label: 'Companies', short: 'Companies', Icon: BuildingIcon, mobile: false },
+      { key: 'companies', to: '/companies', label: 'Companies', short: 'Companies', Icon: BuildingIcon, mobile: true },
     ],
   },
   {
     label: 'Apply',
     items: [
       { key: 'tracker', to: '/tracker', label: 'Applications', short: 'Applied', Icon: KanbanIcon, mobile: true },
-      { key: 'claude-applications', to: '/claude-applications', label: 'Applications through Claude', short: 'Claude', Icon: SparkIcon, mobile: false },
-      { key: 'applications', to: '/applications', label: 'Telegram inbox', short: 'Inbox', Icon: ListIcon, mobile: true },
     ],
   },
   {
@@ -122,8 +106,6 @@ function UserChip() {
 function Chrome({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const navigate = useNavigate()
-  const [tg, setTg] = useState<TelegramStatus>({ state: 'disconnected', error: null, watched_chats: [] })
-  const [reviewCount, setReviewCount] = useState(0)
   const [newJobsCount, setNewJobsCount] = useState(0)
   const [needsYou, setNeedsYou] = useState(0)
   const [palette, setPalette] = useState(false)
@@ -148,15 +130,11 @@ function Chrome({ children }: { children: ReactNode }) {
     let alive = true
     const poll = async () => {
       try {
-        const [s, st, cj, sessions] = await Promise.all([
-          api.tgStatus(),
-          api.stats(),
+        const [cj, sessions] = await Promise.all([
           api.companyJobsSummary().catch(() => null),
           career.sessions().catch(() => null),
         ])
         if (!alive) return
-        setTg(s)
-        setReviewCount(st.by_status?.review || 0)
         if (cj) setNewJobsCount(cj.new_matched || 0)
         if (sessions) setNeedsYou(sessions.filter((x) => ['needs_input', 'blocked', 'unconfirmed', 'reviewing'].includes(x.status)).length)
       } catch {
@@ -171,19 +149,18 @@ function Chrome({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // '/' -> overview, '/applications/12' -> 'applications'; /apply/<sid> belongs to Applications.
+  // '/' -> overview, '/jobs/12' -> 'jobs'; /apply/<sid> belongs to Applications.
   const root = pathname.split('/').filter(Boolean)[0] ?? ''
-  const active = root === 'paste' ? '' : root === 'apply' ? 'tracker' : root
+  const active = root === 'apply' ? 'tracker' : root
 
   const badge = (key: NavKey): { n: number; hot: boolean } | null => {
     if (key === 'jobs' && newJobsCount > 0) return { n: newJobsCount, hot: true }
     if (key === 'tracker' && needsYou > 0) return { n: needsYou, hot: true }
-    if (key === 'applications' && reviewCount > 0) return { n: reviewCount, hot: false }
     return null
   }
 
   return (
-    <TgContext.Provider value={{ tg, setTg }}>
+    <>
       <div className="shell">
         <div className="mobile-top">
           <span className="brand"><BrandMark /> Auto Apply</span>
@@ -226,10 +203,6 @@ function Chrome({ children }: { children: ReactNode }) {
           </nav>
         ))}
         <div className="side-status">
-          <div className="ss-row">
-            <span className={`status-dot ${tg.state === 'connected' ? 'on' : ''}`} />
-            <span>Telegram <b>{tg.state === 'connected' ? 'listening' : 'offline'}</b></span>
-          </div>
           <div className="ss-row" style={{ justifyContent: 'space-between' }}>
             <span>Theme</span>
             <ThemeSwitch />
@@ -254,6 +227,6 @@ function Chrome({ children }: { children: ReactNode }) {
       </nav>
 
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
-    </TgContext.Provider>
+    </>
   )
 }

@@ -82,7 +82,7 @@ export default function EmailPage() {
     <>
       <PageHeader
         title="Email sending"
-        sub="SMTP account used to send applications"
+        sub="SMTP account used for account emails (the password-reset code)"
         onBack={back}
       />
 

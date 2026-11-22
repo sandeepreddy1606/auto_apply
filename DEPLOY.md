@@ -1,20 +1,20 @@
 # Deploying Auto Apply (free, always-on, mobile)
 
-Goal: run the app on a free server that **never sleeps** (so the Telegram
-listener keeps fetching 24/7), reachable from your phone over HTTPS, and
-installable as an app icon on your Android home screen.
+Goal: run the app on a free server that **never sleeps** (so company career
+pages keep being scanned on schedule), reachable from your phone over HTTPS,
+and installable as an app icon on your Android home screen.
 
 Your job data already lives in **Neon Postgres** (cloud). Settings, login
-password, the Telegram session, and uploaded resumes are files kept on a
+password, uploaded resumes and the browser profile are files kept on a
 **persistent disk** on the server.
 
 ---
 
 ## Why a free VM (not Render/Railway free)
 
-One-click free tiers **spin down when idle** — a sleeping server drops the
-Telegram connection and misses posts. A free VM that runs continuously is the
-only way to get "always fetching Telegram" for $0. Use one of:
+One-click free tiers **spin down when idle** — a sleeping server stops the
+scheduled scans and the background worker. A free VM that runs continuously is
+the only way to keep them running for $0. Use one of:
 
 - **Oracle Cloud — Always Free** (recommended): a free-forever small ARM VM with
   a persistent disk. Runs 24/7.
@@ -53,7 +53,7 @@ sudo usermod -aG docker $USER && newgrp docker
 ## 4. Get the code and configure secrets
 
 ```bash
-git clone https://github.com/sandeepreddy1606/auto_apply.git
+git clone -b career_flow https://github.com/sandeepreddy1606/auto_apply.git
 cd auto_apply
 nano .env
 ```
@@ -78,63 +78,43 @@ HTTPS certificate for your domain automatically. Give it ~1 minute, then open:
 
 ## 6. First-time setup (in the browser, once)
 
-1. Create your **dashboard password**.
-2. **Settings → Profile / Resumes / Email (SMTP)** — fill them in.
-3. **Settings → Telegram** — enter api_id / api_hash / phone, click **Connect**,
-   type the **login code** Telegram sends you, and your 2FA password if asked.
-   The session is saved to the server's disk, so it reconnects automatically on
-   every restart and keeps fetching your group 24/7.
+1. Create your **account** (and save the recovery code).
+2. **Settings → Job preferences / Profile / Resumes** — fill them in.
+3. **Companies** — add the career pages to watch. Scans run on a schedule.
+4. On a server there is no screen, so set **Settings → Apply automation** to
+   **Headless**. Sites that need you to sign in or solve a CAPTCHA will stop for
+   you; finish those from a computer running the app with a visible browser.
 
 ## 7. Install it on your Android home screen (PWA)
 
 Open the site in **Chrome on your phone → ⋮ menu → "Add to Home screen"**. It
 installs as a full-screen app icon called **Auto Apply**.
 
-## 8. Google-Form autofill on the phone (Android)
-
-Mobile Chrome has no extensions, but **Kiwi Browser** does:
-
-1. Install **Kiwi Browser** from the Play Store.
-2. Copy the `extension/` folder to your phone (or clone the repo on it).
-3. Kiwi → ⋮ → **Extensions** → enable **Developer mode** → **Load unpacked** →
-   pick the `extension` folder.
-4. Open a Google Form in Kiwi → the ⚡ Auto Apply panel appears and fills it —
-   sign-in forms included (you're logged into Google in the browser).
-
-   In the extension popup, set the app URL to `https://yourname.duckdns.org` if it
-   asks, so it can pull your profile.
-
 ---
 
 ## Updating later
 
 ```bash
-cd auto_apply && git pull && docker compose up -d --build
+cd auto_apply && git switch career_flow && git pull && docker compose up -d --build
 ```
 
 ## Notes
 
 - **Costs:** Oracle Always Free + Neon free tier + DuckDNS = $0/month.
-- **Backups:** the persistent volume `aa_data` holds settings/session/resumes;
+- **Backups:** the persistent volume `aa_data` holds settings, resumes and the browser profile;
   your jobs are in Neon (which has its own backups).
 - **Security:** keep `.env` off git (it already is). Your dashboard password
   protects the site; HTTPS protects it in transit.
 
 ## Notes on scaling
 
-Run a **single** app replica. The Telegram MTProto session must have exactly one
-holder — a second instance would sign the first one out — and the Telegram
-listener plus the career-page scan loop start once per server process
-(`instrumentation.ts`). Postgres via `DATABASE_URL` is fine to share; the app
-process is not.
+Run a **single** app replica. The career-page scan loop and the worker start
+once per server process (`instrumentation.ts`), and the browser profile can be
+open in one browser at a time. Postgres via `DATABASE_URL` is fine to share; the
+app process is not.
 
 ## Upgrading from the Python build
 
 `docker compose up -d --build` picks up the new image with no compose changes:
 the container still listens on 8787 and still persists to the `/data` volume,
 and the database schema is unchanged.
-
-After the first boot, go to **Settings → Telegram** and connect once. The old
-Telethon session file (`telegram.session`) is not readable by the new client,
-which stores its session as `telegram.session.txt` — so you will be asked for a
-login code one time. Re-tick your watched channels afterwards.

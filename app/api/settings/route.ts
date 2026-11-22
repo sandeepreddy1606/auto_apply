@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 // Mirrors the old SettingsBody model. `resumes` is intentionally absent: it is
 // managed through /api/resumes, not by arbitrary settings writes.
 const SECTIONS = [
-  'profile', 'smtp', 'email_template', 'telegram', 'automation', 'companies',
+  'profile', 'smtp', 'companies',
   'job_prefs', 'apply_answers', 'resume_prefs', 'ai', 'apply_automation',
 ] as const
 

@@ -12,13 +12,11 @@
  * is what that loop was emulating around a single long-lived connection.
  */
 import type {
-  Application,
   Company,
   CompanyJob,
   CompanyJobsSummary,
   JobState,
   ScanResult,
-  Stats,
 } from '@/lib/types'
 
 import { DATABASE_URL } from './env'
@@ -39,8 +37,6 @@ if (IS_PG) {
 } else {
   log(`Storage backend: SQLite (${DB_PATH})`)
 }
-
-const JSON_FIELDS = new Set(['extra', 'form_schema', 'form_answers', 'form_files'])
 
 const PK = IS_PG ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'
 const LIKE = IS_PG ? 'ILIKE' : 'LIKE'
@@ -261,151 +257,9 @@ const tx = async <T>(fn: (b: Backend) => Promise<T>) => (await getDriver()).tx(f
 
 const nowIso = () => new Date().toISOString()
 
-/** UTC date `days` ago as YYYY-MM-DD, for the substr(...) date comparisons. */
-function utcCutoff(days: number): string {
-  const d = new Date()
-  d.setUTCDate(d.getUTCDate() - days)
-  return d.toISOString().slice(0, 10)
-}
-
-function serialize(fields: Record<string, unknown>): Record<string, Param> {
-  const out: Record<string, Param> = {}
-  for (const [k, v] of Object.entries(fields)) {
-    out[k] =
-      JSON_FIELDS.has(k) && v != null && typeof v !== 'string'
-        ? JSON.stringify(v)
-        : (v as Param)
-  }
-  return out
-}
-
-function hydrate<T>(row: Row | null): T | null {
-  if (row === null) return null
-  const out: Row = { ...row }
-  for (const k of JSON_FIELDS) {
-    const v = out[k]
-    if (typeof v === 'string' && v) {
-      try {
-        out[k] = JSON.parse(v)
-      } catch {
-        /* leave the raw string, as the Python version did */
-      }
-    }
-  }
-  return out as T
-}
-
 const toNum = (v: unknown): number => Number(v ?? 0)
 
-// ---------- applications ----------
-
-export async function insertApplication(
-  fields: Record<string, unknown>,
-): Promise<Application | null> {
-  const data = serialize({ created_at: nowIso(), ...fields })
-  const cols = Object.keys(data)
-  const sql = `INSERT INTO applications (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
-  const id = await insert(sql, Object.values(data))
-  return getApplication(id)
-}
-
-export async function updateApplication(
-  appId: number,
-  fields: Record<string, unknown>,
-): Promise<Application | null> {
-  if (Object.keys(fields).length === 0) return getApplication(appId)
-  const data = serialize(fields)
-  const sets = Object.keys(data).map((k) => `${k} = ?`).join(', ')
-  await run(`UPDATE applications SET ${sets} WHERE id = ?`, [...Object.values(data), appId])
-  return getApplication(appId)
-}
-
-export async function getApplication(appId: number): Promise<Application | null> {
-  return hydrate<Application>(await one('SELECT * FROM applications WHERE id = ?', [appId]))
-}
-
-export async function hashExists(textHash: string): Promise<boolean> {
-  return (await one('SELECT 1 AS x FROM applications WHERE text_hash = ?', [textHash])) !== null
-}
-
-export async function listApplications(opts: {
-  status?: string | null
-  method?: string | null
-  q?: string | null
-  limit?: number
-} = {}): Promise<Application[]> {
-  const { status, method, q, limit = 500 } = opts
-  let sql = 'SELECT * FROM applications'
-  const where: string[] = []
-  const params: Param[] = []
-  if (status) {
-    where.push('status = ?')
-    params.push(status)
-  }
-  if (method) {
-    where.push('method = ?')
-    params.push(method)
-  }
-  if (q) {
-    where.push(
-      `(raw_text ${LIKE} ? OR job_title ${LIKE} ? OR company ${LIKE} ? OR email_to ${LIKE} ?)`,
-    )
-    const like = `%${q}%`
-    params.push(like, like, like, like)
-  }
-  if (where.length) sql += ` WHERE ${where.join(' AND ')}`
-  sql += ' ORDER BY id DESC LIMIT ?'
-  params.push(limit)
-  return (await all(sql, params)).map((r) => hydrate<Application>(r)!)
-}
-
-export async function deleteApplication(appId: number): Promise<void> {
-  await run('DELETE FROM applications WHERE id = ?', [appId])
-}
-
-export async function stats(): Promise<Stats> {
-  const total = toNum((await one('SELECT COUNT(*) AS n FROM applications'))?.n)
-  const byStatus: Record<string, number> = {}
-  for (const r of await all('SELECT status, COUNT(*) AS n FROM applications GROUP BY status')) {
-    byStatus[String(r.status)] = toNum(r.n)
-  }
-  const byMethod: Record<string, number> = {}
-  for (const r of await all('SELECT method, COUNT(*) AS n FROM applications GROUP BY method')) {
-    byMethod[String(r.method)] = toNum(r.n)
-  }
-  const applied7d = toNum(
-    (
-      await one(
-        'SELECT COUNT(*) AS n FROM applications WHERE applied_at IS NOT NULL ' +
-          'AND substr(applied_at,1,10) >= ?',
-        [utcCutoff(7)],
-      )
-    )?.n,
-  )
-  const lastApplied = (await one('SELECT MAX(applied_at) AS m FROM applications'))?.m
-  const lastReceived = (await one('SELECT MAX(created_at) AS m FROM applications'))?.m
-  return {
-    total,
-    by_status: byStatus,
-    by_method: byMethod,
-    applied_7d: applied7d,
-    last_applied_at: (lastApplied as string) ?? null,
-    last_received_at: (lastReceived as string) ?? null,
-  }
-}
-
-/** Applications received per day: {'YYYY-MM-DD': count}. */
-export async function activity(days = 120): Promise<Record<string, number>> {
-  const rows = await all(
-    'SELECT substr(created_at,1,10) AS d, COUNT(*) AS c FROM applications ' +
-      'WHERE substr(created_at,1,10) >= ? GROUP BY substr(created_at,1,10)',
-    [utcCutoff(days)],
-  )
-  return Object.fromEntries(rows.map((r) => [String(r.d), toNum(r.c)]))
-}
-
 // ---------- companies / career-page jobs ----------
-// Kept in their own tables so scanned jobs never mix with message applications.
 
 export async function addCompany(name: string, careerUrl: string): Promise<Company | null> {
   const id = await insert(

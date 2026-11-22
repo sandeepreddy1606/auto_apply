@@ -1,11 +1,9 @@
-/** TypeScript side of the scanner / mailer / gform parity dump. */
+/** TypeScript side of the scanner parity dump (job-title matching). */
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { mapFieldToProfile, suggestAnswers, unansweredRequired } from '../../lib/server/gform.ts'
-import { renderTemplate } from '../../lib/server/mailer.ts'
 import { buildKeywords, matchTitle, profileYears } from '../../lib/server/matching.ts'
-import type { GoogleForm, Profile } from '../../lib/types.ts'
+import type { Profile } from '../../lib/types.ts'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const fx = JSON.parse(
@@ -13,11 +11,6 @@ const fx = JSON.parse(
 ) as {
   keyword_cases: { profile: Partial<Profile>; extra?: string }[]
   titles: string[]
-  render_context: Record<string, unknown>
-  templates: string[]
-  question_titles: string[]
-  profile: Partial<Profile>
-  form: GoogleForm
 }
 
 const out: Record<string, unknown> = {}
@@ -35,18 +28,6 @@ out.scanner = fx.keyword_cases.map((c) => {
     }),
   }
 })
-
-// ---- mailer: template rendering ----
-out.render = fx.templates.map((t) => renderTemplate(t, fx.render_context))
-
-// ---- gform: question title -> profile field ----
-out.field_map = fx.question_titles.map((title) => ({
-  title,
-  key: mapFieldToProfile(title),
-}))
-const suggest = suggestAnswers(fx.form, fx.profile)
-out.suggest = suggest
-out.missing = unansweredRequired(fx.form, suggest)
 
 const sortKeys = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(sortKeys)

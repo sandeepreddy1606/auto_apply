@@ -28,7 +28,7 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# The Telegram session, settings, login and resumes live on a mounted volume.
+# Settings, login, resumes and the browser profile live on a mounted volume.
 RUN mkdir -p /data && chown -R node:node /data /app
 USER node
 

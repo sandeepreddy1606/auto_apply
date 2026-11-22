@@ -12,7 +12,6 @@ import type { Profile, Settings } from '@/lib/types'
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 export const URL_RE = /^https?:\/\/\S+\.\S+/i
 export const PHONE_RE = /^\+?[\d\s\-()]{7,20}$/
-export const TG_PHONE_RE = /^\+\d{7,15}$/
 
 export const PROFILE_FIELDS: [keyof Profile, string][] = [
   ['full_name', 'Full name'], ['email', 'Email'], ['phone', 'Phone'],
@@ -101,17 +100,6 @@ export function validateSmtp(m: Record<string, unknown>): Errors {
   return errs
 }
 
-export function validateTelegram(t: Record<string, unknown>): Errors {
-  const errs: Errors = {}
-  if (t.api_id && !/^\d+$/.test(String(t.api_id).trim())) {
-    errs.api_id = 'API ID is numbers only'
-  }
-  if (t.phone && !TG_PHONE_RE.test(String(t.phone).replace(/[\s-]/g, ''))) {
-    errs.phone = 'Use international format, e.g. +919876543210'
-  }
-  return errs
-}
-
 export function Input({
   label,
   value,
@@ -157,7 +145,7 @@ export function Input({
 }
 
 type SectionName =
-  | 'profile' | 'smtp' | 'email_template' | 'telegram' | 'automation' | 'companies'
+  | 'profile' | 'smtp' | 'companies'
   | 'job_prefs' | 'apply_answers' | 'resume_prefs' | 'ai' | 'apply_automation'
 
 /**
@@ -248,7 +236,7 @@ export function useSection<T extends Record<string, unknown>>(
 
   const discard = () => setData(baseline)
 
-  /** For flows that persist outside save() (e.g. Telegram connect). */
+  /** For flows that persist outside save(). */
   const markSaved = (section: T) => {
     setData(section)
     setBaseline(section)

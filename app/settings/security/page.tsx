@@ -281,7 +281,7 @@ export default function SecurityPage() {
             </ul>
           )}
           <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-            Telegram listening and background scans keep running while you’re signed out.
+            Background company scans keep running while you’re signed out.
           </p>
         </div>
 

@@ -225,8 +225,8 @@ export default function ResumesPage() {
         </div>
 
         <p className="muted" style={{ fontSize: 12.5 }}>
-          Note: this attaches files to <strong>email</strong> applications. Google Forms
-          that ask for a resume link use the <em>Resume link</em> field in your Profile.
+          When you apply on a careers page, the resume matched to the role (by its keywords) is the one
+          uploaded, unless you pick another on the application.
         </p>
       </div>
     </>

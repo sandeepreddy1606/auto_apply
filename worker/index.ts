@@ -114,7 +114,6 @@ async function main(): Promise<void> {
   if (stuck) log(`recovered ${stuck} application(s) left mid-fill or mid-submit`)
   await heartbeat()
   const hb = setInterval(() => void heartbeat(), 5_000)
-  void startupFixes()
   const maint = setInterval(() => {
     void reclaimStuck().catch(() => {})
     void recoverInterrupted().catch(() => {})
@@ -158,21 +157,6 @@ async function main(): Promise<void> {
     }
     const anyRunning = Object.values(running).some((n) => n > 0)
     await new Promise((r) => setTimeout(r, busy || anyRunning ? 300 : 1000))
-  }
-}
-
-/** One-time data fixes (each runs once ever, remembered in the kv table). */
-async function startupFixes(): Promise<void> {
-  const { kvGet } = await import('@/lib/tasks/queue')
-  const service = await import('@/lib/server/service')
-  if (!(await kvGet('signin_forms_reopened_v2'))?.value) {
-    const n = await service.reopenSignInForms()
-    await kvSet('signin_forms_reopened_v2', { at: new Date().toISOString(), reopened: n })
-    if (n) log(`${n} Google Form post(s) can now be applied with your Google account`)
-  }
-  if (!(await kvGet('posts_enriched_v1'))?.value) {
-    const n = await service.enrichExistingPosts()
-    await kvSet('posts_enriched_v1', { at: new Date().toISOString(), updated: n })
   }
 }
 

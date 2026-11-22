@@ -3,16 +3,13 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { useTelegramStatus } from '@/components/AppShell'
 import {
   ChevronRight,
   DocIcon,
   FormIcon,
-  GearIcon,
   ListIcon,
   LockIcon,
   MailIcon,
-  SendIcon,
   HeartbeatIcon,
   TargetIcon,
   SparkIcon,
@@ -53,7 +50,6 @@ function Row({
 }
 
 export default function SettingsHubPage() {
-  const { tg } = useTelegramStatus()
   const [settings, setSettings] = useState<Settings | null>(null)
 
   const [health, setHealth] = useState<{ fail: number; warn: number } | null>(null)
@@ -94,11 +90,6 @@ export default function SettingsHubPage() {
     settings?.smtp?.username &&
     settings?.smtp?.password
   )
-  const autoOn =
-    settings?.automation?.auto_apply_email || settings?.automation?.auto_apply_gform
-  const tplDefault =
-    settings &&
-    settings.email_template?.subject === 'Application for {job_title} - {full_name}'
 
   return (
     <>
@@ -164,13 +155,13 @@ export default function SettingsHubPage() {
       </div>
 
       <div className="hub-group">
-      <h3>Profile & messaging</h3>
+      <h3>Profile & account</h3>
       <div className="hub-list">
         <Row
           to="/settings/profile"
           icon={<ListIcon style={{ width: 17, height: 17 }} />}
           title="Profile"
-          sub={settings ? `${filled}/${total} fields filled — used for forms & emails` : '…'}
+          sub={settings ? `${filled}/${total} fields filled — used to fill application forms` : '…'}
           subClass={settings && filled < 7 ? 'warn-text' : ''}
         />
 
@@ -187,44 +178,10 @@ export default function SettingsHubPage() {
         />
 
         <Row
-          to="/settings/telegram"
-          icon={<SendIcon style={{ width: 17, height: 17 }} />}
-          title="Telegram"
-          sub={
-            tg.state === 'connected'
-              ? '● Connected — listening for job posts'
-              : 'Not connected'
-          }
-          subClass={tg.state === 'connected' ? 'success-text' : ''}
-        />
-
-        <Row
           to="/settings/email"
           icon={<MailIcon style={{ width: 17, height: 17 }} />}
-          title="Email sending"
-          sub={settings ? (smtpReady ? settings.smtp.username : 'Not configured') : '…'}
-          subClass={settings && !smtpReady ? 'warn-text' : ''}
-        />
-
-        <Row
-          to="/settings/template"
-          icon={<FormIcon style={{ width: 17, height: 17 }} />}
-          title="Email template"
-          sub={settings ? (tplDefault ? 'Default template' : 'Customized') : '…'}
-        />
-
-        <Row
-          to="/settings/automation"
-          icon={<GearIcon style={{ width: 17, height: 17 }} />}
-          title="Automation"
-          sub={
-            settings
-              ? autoOn
-                ? 'Auto-apply is ON'
-                : 'Off — everything waits for your review'
-              : '…'
-          }
-          subClass={autoOn ? 'success-text' : ''}
+          title="Email (password reset)"
+          sub={settings ? (smtpReady ? settings.smtp.username : 'Optional — lets “Forgot password” email you a code') : '…'}
         />
 
         <Row

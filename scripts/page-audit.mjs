@@ -8,7 +8,7 @@
  *
  * With a data dir, a COPY of it is used (your real data is never touched)
  * and the first account is signed in directly. Without one, a fresh install
- * is created with a demo account. The worker and Telegram listener are off.
+ * is created with a demo account. The worker and background scans are off.
  */
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -29,8 +29,6 @@ if (source) {
     if (f === 'browser-profile' || f === 'logs') continue
     fs.cpSync(path.join(source, f), path.join(data, f), { recursive: true })
   }
-  // Never let the copy talk to Telegram as you.
-  for (const f of ['telegram.session.txt', 'telegram.session']) fs.rmSync(path.join(data, f), { force: true })
 } else {
   fs.mkdirSync(path.join(data, 'seed'), { recursive: true })
   fs.copyFileSync(path.join(ROOT, 'tests/fixtures/resume/base.tex'), path.join(data, 'seed', 'base_resume.tex'))
@@ -84,15 +82,13 @@ try {
   const firstId = (x) => (Array.isArray(x) ? x : x?.items || [])[0]?.id
   const jobId = firstId(await call('GET', '/api/jobs?view=all&limit=1'))
   const sid = firstId(await call('GET', '/api/apply'))
-  const appId = firstId(await call('GET', '/api/applications?limit=1'))
 
   // AUDIT_QUICK=1: only the click paths and interactions below.
   const pages = process.env.AUDIT_QUICK === '1' ? [] : [
     '/', '/jobs', jobId && `/jobs/${jobId}`, sid && `/apply/${sid}`, '/tracker', '/companies', '/companies?tab=watched', '/companies/manage',
-    '/applications', appId && `/applications/${appId}`, '/paste',
     '/settings', '/settings/setup', '/settings/profile', '/settings/preferences', '/settings/resume', '/settings/resume?tab=issues',
     '/settings/resume?tab=facts', '/settings/resume?tab=skills', '/settings/resume?tab=output', '/settings/resumes', '/settings/answers',
-    '/settings/ai', '/settings/apply', '/settings/automation', '/settings/email', '/settings/template', '/settings/telegram', '/settings/security',
+    '/settings/ai', '/settings/apply', '/settings/email', '/settings/security',
   ].filter(Boolean)
 
   const report = []

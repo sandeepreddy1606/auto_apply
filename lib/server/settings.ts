@@ -1,4 +1,4 @@
-/** JSON-file settings store (profile, SMTP, templates, telegram, automation). */
+/** JSON-file settings store (profile, job preferences, answers, resume, AI, browser, SMTP). */
 import fs from 'node:fs'
 
 import type { AiConfig, JobPrefs, ResumePrefs, Settings } from '@/lib/types'
@@ -39,47 +39,6 @@ export const DEFAULTS: Settings = {
     password: '',
     from_name: '',
     use_ssl: false,
-  },
-  email_template: {
-    subject: 'Application for {job_title} - {full_name}',
-    body: [
-      'Dear Hiring Team,',
-      '',
-      'I came across your opening for the {job_title} role and would like to submit my application.',
-      '',
-      'A quick summary of my profile:',
-      '- Experience: {experience_years}',
-      '- Key skills: {skills}',
-      '- Current location: {current_location}',
-      '- Notice period: {notice_period}',
-      '',
-      'I have attached my resume for your review. You can also find my work here:',
-      'LinkedIn: {linkedin}',
-      'GitHub: {github}',
-      'Portfolio: {portfolio}',
-      '',
-      'I would welcome the opportunity to discuss how I can contribute to your team.',
-      '',
-      'Best regards,',
-      '{full_name}',
-      '{phone}',
-      '{email}',
-    ].join('\n'),
-  },
-  telegram: {
-    api_id: '',
-    api_hash: '',
-    phone: '',
-    watched_chats: [],
-    history_days: 3,
-  },
-  automation: {
-    auto_apply_email: false,
-    auto_apply_gform: false,
-    auto_apply_link: false,
-    link_auto_submit: true,
-    gform_use_ai: true,
-    gform_tick_declarations: false,
   },
   companies: {
     match_keywords: '',
@@ -214,7 +173,7 @@ function sanitizeCareer(settings: Settings): void {
   settings.apply_answers.leave_salary_blank = Boolean(settings.apply_answers.leave_salary_blank)
 
   // One source of truth: these answers are edited on the Application answers
-  // page but the Telegram / Google Form flows read them from the profile.
+  // page, and the profile keeps the same values.
   const a = settings.apply_answers
   const p = settings.profile
   if (a.notice_period) p.notice_period = a.notice_period
@@ -310,7 +269,7 @@ export function load(): Settings {
 
 /** Normalize values so bad input can't break sending later. */
 function sanitize(settings: Settings): Settings {
-  for (const section of ['profile', 'smtp', 'telegram', 'companies'] as const) {
+  for (const section of ['profile', 'smtp', 'companies'] as const) {
     const obj = settings[section] as unknown as Json
     for (const [k, v] of Object.entries(obj)) {
       if (typeof v === 'string') obj[k] = v.trim()
@@ -333,13 +292,6 @@ function sanitize(settings: Settings): Settings {
   if (settings.profile.resume_path) {
     settings.profile.resume_path = settings.profile.resume_path.replace(/^"|"$/g, '').trim()
   }
-  const tg = settings.telegram
-  tg.history_days = clampInt(tg.history_days, 0, 30, 3)
-  const au2 = settings.automation
-  au2.auto_apply_link = Boolean(au2.auto_apply_link)
-  au2.link_auto_submit = au2.link_auto_submit !== false
-  au2.gform_use_ai = au2.gform_use_ai !== false
-  au2.gform_tick_declarations = Boolean(au2.gform_tick_declarations)
   sanitizeCareer(settings)
   return settings
 }

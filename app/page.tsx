@@ -13,10 +13,9 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 
-import { useTelegramStatus } from '@/components/AppShell'
 import { ScorePill } from '@/components/career/ui'
 import {
-  AlertIcon, ArrowRightIcon, BoltIcon, BriefcaseIcon, CheckIcon, ChevronRight, ClockIcon, InboxIcon, PinIcon, PlusSquare,
+  AlertIcon, ArrowRightIcon, BoltIcon, BriefcaseIcon, BuildingIcon, CheckIcon, ChevronRight, ClockIcon, PinIcon,
 } from '@/components/Icons'
 import { useToast } from '@/components/Toast'
 import { useNavigate } from '@/components/Navigation'
@@ -25,7 +24,7 @@ import { profileCompleteness } from '@/components/settings/shared'
 import { api } from '@/lib/api'
 import { career } from '@/lib/career-api'
 import type { TrackerRow } from '@/lib/career-api'
-import type { CompanyJobsSummary, JobListItem, Settings, Stats } from '@/lib/types'
+import type { CompanyJobsSummary, JobListItem, Settings } from '@/lib/types'
 
 const DAY = 86_400_000
 
@@ -52,10 +51,8 @@ const ATTN: Record<string, [string, 'bad' | 'warn' | 'info']> = {
 }
 
 export default function HomePage() {
-  const { tg } = useTelegramStatus()
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [stats, setStats] = useState<Stats | null>(null)
   const [summary, setSummary] = useState<CompanyJobsSummary | null>(null)
   const [sessions, setSessions] = useState<TrackerRow[] | null>(null)
   const [top, setTop] = useState<JobListItem[] | null>(null)
@@ -82,8 +79,7 @@ export default function HomePage() {
   useEffect(() => {
     let alive = true
     const load = async () => {
-      const [st, cj, ss, tp, rc, se] = await Promise.all([
-        api.stats().catch(() => null),
+      const [cj, ss, tp, rc, se] = await Promise.all([
         api.companyJobsSummary().catch(() => null),
         career.sessions().catch(() => null),
         career.jobs({ view: 'relevant', sort: 'score', limit: 9 }).catch(() => null),
@@ -91,7 +87,6 @@ export default function HomePage() {
         api.getSettings().catch(() => null),
       ])
       if (!alive) return
-      setStats(st)
       setSummary(cj)
       setSessions(ss ?? [])
       setTop(tp?.items ?? [])
@@ -111,12 +106,10 @@ export default function HomePage() {
   const submitted = s.filter((x) => x.status === 'submitted')
   const inProgress = s.filter((x) => !['submitted', 'cancelled'].includes(x.status))
   const attention = s.filter((x) => x.status in ATTN).slice(0, 6)
-  const tgApplied = stats?.by_status?.applied || 0
-  const appliedTotal = submitted.length + tgApplied
-  const appliedWeek = submitted.filter((x) => x.submitted_at && Date.now() - Date.parse(x.submitted_at) < 7 * DAY).length + (stats?.applied_7d || 0)
+  const appliedTotal = submitted.length
+  const appliedWeek = submitted.filter((x) => x.submitted_at && Date.now() - Date.parse(x.submitted_at) < 7 * DAY).length
   const responded = submitted.filter((x) => x.stage && ['screening', 'interview', 'offer'].includes(x.stage)).length
   const interviews = submitted.filter((x) => x.stage && ['interview', 'offer'].includes(x.stage)).length
-  const reviewTg = stats?.by_status?.review || 0
 
   // New matches per day, last 30 days.
   const days = useMemo(() => {
@@ -158,7 +151,6 @@ export default function HomePage() {
         { done: (summary?.companies ?? 0) > 0, title: 'Watch a company’s career page', sub: 'Amazon, Google, Microsoft or any ATS board', to: '/companies' },
         { done: hasPdf, title: 'Upload your resume PDF', sub: 'Lets you apply before installing LaTeX', to: '/settings/resumes' },
         { done: filled >= Math.min(total, 12), title: 'Complete your profile', sub: `${filled}/${total} fields — used to fill forms`, to: '/settings/profile' },
-        { done: tg.state === 'connected', title: 'Connect Telegram (optional)', sub: 'Pick up job posts from your channels', to: '/settings/telegram' },
       ]
     : []
   const doneSteps = steps.filter((x) => x.done).length
@@ -179,7 +171,7 @@ export default function HomePage() {
             </p>
           </div>
           <div className="row-actions" style={{ marginTop: 0 }}>
-            <button className="btn" onClick={() => navigate('/paste')}><PlusSquare /> Paste a post</button>
+            <button className="btn" onClick={() => navigate('/companies')}><BuildingIcon /> Companies</button>
             <button className="btn" onClick={() => navigate('/jobs')}><BriefcaseIcon /> All jobs</button>
           </div>
         </div>
@@ -234,7 +226,7 @@ export default function HomePage() {
               </div>
               <button className="card-link" onClick={() => navigate('/tracker')}>All applications <ChevronRight /></button>
             </div>
-            {attention.length === 0 && reviewTg === 0 ? (
+            {attention.length === 0 ? (
               <div className="empty-state" style={{ padding: '18px 0 8px' }}>
                 <span className="es-icon"><CheckIcon /></span>
                 <b>Nothing needs you</b>
@@ -256,17 +248,6 @@ export default function HomePage() {
                     </button>
                   )
                 })}
-                {reviewTg > 0 && (
-                  <button className="attn-row" onClick={() => navigate('/applications')}>
-                    <span className="logo-tile"><InboxIcon style={{ width: 16, height: 16 }} /></span>
-                    <span className="at-body">
-                      <div className="at-title">{reviewTg} Telegram post{reviewTg > 1 ? 's' : ''} to review</div>
-                      <div className="at-sub">Email and Google Form applications from your channels</div>
-                    </span>
-                    <span className="pill info">Review</span>
-                    <ChevronRight />
-                  </button>
-                )}
               </div>
             )}
           </section>

@@ -1,7 +1,5 @@
 /** Shared shapes used by both the API routes and the client. */
 
-export type ApplyMethod = 'email' | 'gform' | 'link' | 'unknown'
-export type AppStatus = 'review' | 'applying' | 'applied' | 'failed' | 'manual' | 'skipped'
 export type JobState = 'new' | 'seen' | 'shortlisted' | 'dismissed' | 'applied'
 
 export interface Profile {
@@ -40,50 +38,6 @@ export interface SmtpConfig {
   use_ssl: boolean
 }
 
-export interface EmailTemplate {
-  subject: string
-  body: string
-}
-
-export interface WatchedChat {
-  id: string
-  title: string
-  /** 'group' | 'channel', when known. */
-  kind?: string
-  username?: string | null
-}
-
-/** Sync state of a watched group (kept in the kv table, not settings). */
-export interface ChatSync {
-  last_message_id: number
-  last_fetch_at: string | null
-  last_fetch_found: number
-  last_fetch_new: number
-  error: string | null
-}
-
-export interface TelegramConfig {
-  api_id: string
-  api_hash: string
-  phone: string
-  watched_chats: WatchedChat[]
-  /** How many days of history to fetch when a group is added (0 = only new posts). */
-  history_days: number
-}
-
-export interface AutomationConfig {
-  auto_apply_email: boolean
-  auto_apply_gform: boolean
-  /** Start applying on career-page links as soon as a post arrives. */
-  auto_apply_link: boolean
-  /** After filling a career-page form, submit it when every required answer is in place. */
-  link_auto_submit: boolean
-  /** Google Forms: let the AI (your Claude subscription) answer what your profile and saved answers don't. */
-  gform_use_ai: boolean
-  /** Google Forms: tick standard declarations ("the information I gave is correct") for you. */
-  gform_tick_declarations: boolean
-}
-
 export interface CompaniesConfig {
   match_keywords: string
   scan_interval_minutes: number
@@ -104,9 +58,6 @@ export interface ResumeMeta {
 export interface Settings {
   profile: Profile
   smtp: SmtpConfig
-  email_template: EmailTemplate
-  telegram: TelegramConfig
-  automation: AutomationConfig
   companies: CompaniesConfig
   resumes: ResumeMeta[]
   job_prefs: JobPrefs
@@ -114,62 +65,6 @@ export interface Settings {
   resume_prefs: ResumePrefs
   ai: AiConfig
   apply_automation: ApplyAutomationConfig
-}
-
-/** Values a Google Form answer can take: text, a checkbox list, or a date. */
-export type FormAnswer = string | string[] | { year: string; month: string; day: string }
-export type FormAnswers = Record<string, FormAnswer>
-
-export interface ParsedExtra {
-  batch?: string
-  qualification?: string
-  skills?: string
-  notice_period?: string
-  job_type?: string
-  deadline?: string
-  /** Technologies mentioned in the post (read with the description reader). */
-  skills_list?: string[]
-  work_mode?: string
-  all_emails?: string[]
-  all_form_urls?: string[]
-  other_urls?: string[]
-  subject_hint?: string | null
-}
-
-export interface Application {
-  id: number
-  created_at: string
-  source: string
-  channel: string | null
-  raw_text: string
-  text_hash: string | null
-  method: ApplyMethod
-  email_to: string | null
-  form_url: string | null
-  apply_url: string | null
-  job_title: string | null
-  company: string | null
-  location: string | null
-  experience: string | null
-  salary: string | null
-  extra: ParsedExtra | null
-  email_subject: string | null
-  email_body: string | null
-  form_schema: GoogleForm | null
-  form_answers: FormAnswers | null
-  /** Google Form upload questions: entry key → the file you chose for it. */
-  form_files?: Record<string, FormFileChoice> | null
-  status: AppStatus
-  status_reason: string | null
-  error: string | null
-  applied_at: string | null
-  notes: string | null
-  /** When the message was posted in Telegram (null for pasted posts). */
-  posted_at?: string | null
-  tg_chat_id?: string | null
-  tg_message_id?: number | null
-  /** Career-page links: the browser run applying this post (apply_sessions.id). */
-  session_id?: number | null
 }
 
 export interface Company {
@@ -212,117 +107,6 @@ export interface CompanyJob {
   company_name?: string
   match_score?: number | null
   posted_at?: string | null
-}
-
-export interface GoogleFormField {
-  item_id: number
-  entry_id: number
-  title: string
-  description: string
-  type_code: number
-  type: string
-  required: boolean
-  options: string[]
-  supported: boolean
-}
-
-export interface GoogleForm {
-  title: string
-  description: string
-  url: string
-  submit_url: string
-  fbzx: string | null
-  collects_email: boolean
-  page_count: number
-  fields: GoogleFormField[]
-  /** Read in the signed-in browser: this form needs a Google account. */
-  signed_in?: boolean
-  /** Where each answer came from (entry key → source); "you" answers are never overwritten. */
-  answer_meta?: Record<string, FormAnswerMeta>
-  /** The form doesn't fit you (e.g. it only takes BCom/BBA graduates): why. */
-  ineligible?: string | null
-  /** Why a question was left for you (entry key → e.g. "Your 12th percentage isn't in your resume"). */
-  missing_notes?: Record<string, string>
-}
-
-/** A file for an upload question: one of your resumes, a file uploaded on the post, or nothing. */
-export type FormFileChoice = { kind: 'resume'; id: string } | { kind: 'file'; name: string } | { kind: 'skip' }
-
-export type FormAnswerSource = 'you' | 'profile' | 'answers' | 'learned' | 'ai'
-
-export interface FormAnswerMeta {
-  source: FormAnswerSource
-  /** For AI answers: fact = stated in your resume/profile; preference = from your settings; inferred = a judgement call. */
-  basis?: 'fact' | 'preference' | 'inferred'
-  note?: string
-}
-
-export interface MissingQuestion {
-  title: string
-  type: string
-  supported: boolean
-  /** Why it couldn't be answered automatically (e.g. "Your 12th-standard percentage isn't in your resume"). */
-  note?: string
-}
-
-export interface Stats {
-  total: number
-  by_status: Record<string, number>
-  by_method: Record<string, number>
-  applied_7d: number
-  last_applied_at: string | null
-  last_received_at: string | null
-}
-
-export type TelegramState =
-  | 'disconnected'
-  | 'awaiting_code'
-  | 'awaiting_password'
-  | 'connected'
-  | 'error'
-
-export interface TelegramStatus {
-  state: TelegramState
-  error: string | null
-  watched_chats: WatchedChat[]
-}
-
-export interface EmailPreview {
-  to: string | null
-  subject: string
-  body: string
-  attachment: string | null
-}
-
-export interface FormLoadResult {
-  form: GoogleForm
-  answers: FormAnswers
-  unanswered_required: MissingQuestion[]
-}
-
-export interface ApplyResult extends Application {
-  needs_input?: boolean
-  unanswered_required?: MissingQuestion[]
-}
-
-export interface BatchItemResult {
-  id: number
-  ok: boolean
-  skipped?: string
-  needs_input?: boolean
-  /** Careers-page links: the browser run was queued (it finishes in the background). */
-  started?: boolean
-  job_title?: string | null
-  error?: string | null
-}
-
-export interface BatchResult {
-  applied: number
-  /** Careers-page links queued for the browser. */
-  started?: number
-  needs_input: number
-  total: number
-  results: BatchItemResult[]
 }
 
 export interface ScanResult {
@@ -507,24 +291,6 @@ export type SessionStatus =
 
 export type AppStage = 'applied' | 'screening' | 'interview' | 'offer' | 'rejected' | 'ghosted'
 
-/** An application Claude submitted on another site (Naukri, a career page). */
-export type ClaudeAppStatus = 'applied' | 'needs_you' | 'interview' | 'offer' | 'rejected' | 'skipped'
-export interface ClaudeApplication {
-  id: number
-  title: string
-  company: string
-  location: string
-  experience: string
-  /** Where it was submitted: "Naukri" or the career site's name. */
-  platform: string
-  url: string
-  /** File name of the resume that was sent. */
-  resume: string
-  status: ClaudeAppStatus
-  note: string
-  applied_at: string
-}
-
 export type FieldKind =
   | 'text' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'file' | 'combobox' | 'date'
 
@@ -652,8 +418,6 @@ export interface ResumeIssue {
 export interface ApplySession {
   id: number
   job_id: number
-  /** Set when this run applies a Telegram post (then job_id is 0). */
-  post_id?: number | null
   resume_version_id: number | null
   status: SessionStatus
   ats_type: string | null

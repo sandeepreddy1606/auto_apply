@@ -10,7 +10,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react'
 
 import type { AuthStatus, AuthUser, SignedIn } from '@/lib/api'
-import { UNAUTHORIZED_EVENT, api, extensionToken } from '@/lib/api'
+import { UNAUTHORIZED_EVENT, api } from '@/lib/api'
 import { BoltIcon } from '@/components/Icons'
 
 export const AUTH_ROUTES = ['/login', '/signup', '/forgot']
@@ -99,7 +99,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [status, onAuthPage, pathname, router])
 
   const signedIn = useCallback((res: SignedIn) => {
-    extensionToken.set(res.token)
     setStatus((s) => ({ state: 'ready', user: res.user, email_reset: s?.email_reset ?? false }))
   }, [])
 
@@ -113,7 +112,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       /* the cookie is cleared server-side when reachable; carry on locally */
     }
-    extensionToken.clear()
     setStatus((s) => ({ state: 'login', user: null, email_reset: s?.email_reset ?? false }))
     router.replace('/login')
   }, [router])

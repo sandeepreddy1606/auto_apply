@@ -3,7 +3,6 @@
 import { useState } from 'react'
 
 import { ChipInput } from '@/components/career/ui'
-import GoogleSignIn from '@/components/GoogleSignIn'
 import PageHeader from '@/components/PageHeader'
 import { Input, LoadError, SaveBar, useGuardedBack, useSection } from '@/components/settings/shared'
 import { useToast } from '@/components/Toast'
@@ -33,15 +32,6 @@ export default function ApplyAutomationPage() {
       <PageHeader title="Apply automation" sub="How the browser fills and submits applications" onBack={back} />
       <div className="settings-stack">
         <div className="card">
-          <h3>Google account for forms</h3>
-          <p className="muted small" style={{ marginBottom: 12 }}>
-            Some Google Forms in job posts need you to be signed in (they collect your email or ask you to upload a
-            resume). Sign in once here; those forms then open with your account when you press Apply.
-          </p>
-          <GoogleSignIn />
-        </div>
-
-        <div className="card">
           <h3>Browser</h3>
           <div className="stack" style={{ gap: 10 }}>
             <label className="toggle">
@@ -61,7 +51,7 @@ export default function ApplyAutomationPage() {
             </label>
             <label className="toggle">
               <input type="radio" name="browser" checked={a.browser === 'chrome'} onChange={() => s.set('browser')('chrome')} />
-              <span><b>Your installed Google Chrome</b> — pick this if Google says “This browser or app may not be secure” when you sign in. It uses its own profile (not your everyday one), so sign in to Google again after switching.</span>
+              <span><b>Your installed Google Chrome</b> — pick this if a careers site refuses the built-in browser (e.g. “Sign in with Google” says “This browser or app may not be secure”). It uses its own profile (not your everyday one), so sign in to those sites again after switching.</span>
             </label>
           </div>
         </div>
