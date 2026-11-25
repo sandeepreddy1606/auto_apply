@@ -243,7 +243,7 @@ try {
     await page.locator('.sidebar .theme-switch button[aria-label="Light"]').click().catch(() => issues.push('no theme switch in the sidebar'))
     await sleep(500) // the background fades between themes
     const theme = await page.evaluate(() => [document.documentElement.dataset.theme, getComputedStyle(document.body).backgroundColor])
-    if (theme[0] !== 'light' || theme[1] !== 'rgb(238, 241, 244)') issues.push(`theme switch: ${theme.join(' / ')}`)
+    if (theme[0] !== 'light' || theme[1] !== 'rgb(246, 241, 243)') issues.push(`theme switch: ${theme.join(' / ')}`)
     await page.reload({ waitUntil: 'networkidle' }).catch(() => {})
     if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== 'light') issues.push('theme choice not kept after reload')
     report.push({ vw: 'laptop', page: 'interactions (Ctrl+K, theme)', issues })

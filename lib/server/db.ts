@@ -19,6 +19,8 @@ import type {
   ScanResult,
 } from '@/lib/types'
 
+import { tidyCompanyName } from '@/lib/companies/names'
+
 import { DATABASE_URL } from './env'
 import { runMigrations } from './migrations'
 import { DB_PATH } from './paths'
@@ -264,7 +266,7 @@ const toNum = (v: unknown): number => Number(v ?? 0)
 export async function addCompany(name: string, careerUrl: string): Promise<Company | null> {
   const id = await insert(
     'INSERT INTO companies (name, career_url, created_at) VALUES (?, ?, ?)',
-    [name, careerUrl, nowIso()],
+    [tidyCompanyName(name), careerUrl, nowIso()],
   )
   return getCompany(id)
 }
@@ -284,7 +286,9 @@ export async function listCompanies(): Promise<Company[]> {
         (SELECT COUNT(DISTINCT lower(j.title)) FROM company_jobs j
          WHERE j.company_id = c.id AND j.active = 1 AND j.matched = 1 AND j.state = 'new') AS new_jobs,
         (SELECT COUNT(*) FROM apply_sessions s JOIN company_jobs j ON j.id = s.job_id
-         WHERE j.company_id = c.id AND s.status != 'cancelled') AS applications
+         WHERE j.company_id = c.id AND s.status != 'cancelled') AS applications,
+        (SELECT COUNT(*) FROM apply_sessions s JOIN company_jobs j ON j.id = s.job_id
+         WHERE j.company_id = c.id AND s.status = 'submitted') AS submitted
     FROM companies c ORDER BY ${order}`
   // Postgres COUNT(*) comes back as a bigint string; normalize so the UI can do arithmetic.
   return (await all(sql)).map((r) => ({
@@ -293,6 +297,7 @@ export async function listCompanies(): Promise<Company[]> {
     matched_jobs: toNum(r.matched_jobs),
     new_jobs: toNum(r.new_jobs),
     applications: toNum(r.applications),
+    submitted: toNum(r.submitted),
     paused: toNum(r.paused),
     fail_count: toNum(r.fail_count),
   })) as Company[]

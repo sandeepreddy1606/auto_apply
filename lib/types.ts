@@ -83,7 +83,10 @@ export interface Company {
   matched_jobs?: number
   new_jobs?: number
   /** Applications started for this company's jobs (not cancelled). */
+  /** Applications started (any status but cancelled). */
   applications?: number
+  /** Of those, submitted. */
+  submitted?: number
   /** 1 = never scanned automatically. */
   paused?: number
   /** Failed scans in a row (drives the retry backoff). */

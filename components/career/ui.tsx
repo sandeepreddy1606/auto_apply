@@ -10,37 +10,20 @@ import type { Gate } from '@/lib/career-api'
 import type { ScoreBreakdown, SessionStatus } from '@/lib/types'
 
 /**
- * The match score, the one bold element of the interface: a dial whose arc is
- * the score, with the number set in the display face. Colour says how good
- * the fit is; a filtered job shows a muted, struck-through dial.
+ * The match score as a temple border: the figure in the display face over a
+ * row of ten small woven triangles — the border along a Kanchipuram sari's
+ * edge — filled with gold thread up to the score. A filtered job shows an
+ * empty border and a struck figure.
  */
 export function ScorePill({ score, breakdown, size = 'md' }: { score: number | null; breakdown?: ScoreBreakdown | null; size?: 'sm' | 'md' | 'lg' }) {
-  const px = size === 'lg' ? 64 : size === 'sm' ? 36 : 44
-  const stroke = size === 'lg' ? 5 : 3.5
-  const r = (px - stroke) / 2
-  const c = 2 * Math.PI * r
   const filtered = Boolean(breakdown?.excluded)
   const tone = score == null || filtered ? 'none' : score >= 75 ? 'hi' : score >= 55 ? 'mid' : 'lo'
   const title = score == null ? 'Not scored yet' : filtered ? `Filtered: ${breakdown!.excluded}` : `Match score ${score} of 100`
+  const pct = score == null || filtered ? 0 : Math.max(0, Math.min(100, score))
   return (
-    <span className={`dial ${tone} ${size}`} style={{ width: px, height: px }} title={title} role="img" aria-label={title}>
-      <svg width={px} height={px} viewBox={`0 0 ${px} ${px}`} aria-hidden="true">
-        <circle className="dial-track" cx={px / 2} cy={px / 2} r={r} strokeWidth={stroke} fill="none" />
-        {score != null && !filtered && (
-          <circle
-            className="dial-arc"
-            cx={px / 2}
-            cy={px / 2}
-            r={r}
-            strokeWidth={stroke}
-            fill="none"
-            strokeLinecap="round"
-            strokeDasharray={`${(Math.max(0, Math.min(100, score)) / 100) * c} ${c}`}
-            transform={`rotate(-90 ${px / 2} ${px / 2})`}
-          />
-        )}
-      </svg>
-      <b className={filtered ? 'struck' : ''}>{score ?? '–'}</b>
+    <span className={`score-mark ${tone} ${size}`} title={title} role="img" aria-label={title}>
+      {filtered ? <b className="off">off</b> : <b>{score ?? '–'}</b>}
+      <i className="temple-meter" aria-hidden="true"><i style={{ width: `${pct}%` }} /></i>
     </span>
   )
 }
@@ -59,6 +42,21 @@ export const STATUS_LABEL: Record<SessionStatus, [string, string]> = {
   failed: ['Failed', 'bad'],
   cancelled: ['Cancelled', ''],
 }
+
+/** What you do next for an application in each status (null = nothing, it's running or done). */
+export const NEXT_STEP: Partial<Record<SessionStatus, string>> = {
+  created: 'Choose the resume to send',
+  resume_drafting: 'Finish your tailored resume',
+  resume_ready: 'Start filling the form',
+  needs_input: 'Answer the open questions',
+  reviewing: 'Check the answers and submit',
+  blocked: 'Sign in on the site, then continue',
+  unconfirmed: 'Tell us whether it went through',
+  failed: 'It stopped — try again',
+}
+
+/** Statuses that wait on you (vs. running on their own). */
+export const WAITS_ON_YOU: SessionStatus[] = ['needs_input', 'reviewing', 'blocked', 'unconfirmed', 'failed']
 
 export function StatusPill({ status }: { status: SessionStatus | string | null }) {
   if (!status) return null
@@ -252,7 +250,7 @@ export function Breakdown({ b }: { b: ScoreBreakdown }) {
           <b>{k}</b>
           <span className="small">{d || `${Math.round(v * 100)}%`}</span>
           <div className="bar">
-            <i style={{ width: `${Math.round(v * 100)}%`, background: v >= 0.8 ? 'var(--green)' : v >= 0.5 ? 'var(--amber)' : 'var(--red)' }} />
+            <i style={{ width: `${Math.round(v * 100)}%`, background: v >= 0.8 ? 'var(--t0)' : v >= 0.5 ? 'var(--t2)' : 'var(--t1)' }} />
           </div>
         </div>
       ))}

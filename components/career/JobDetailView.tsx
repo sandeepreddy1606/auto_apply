@@ -9,6 +9,7 @@ import { career } from '@/lib/career-api'
 import type { JobDetail, JobRequirements } from '@/lib/types'
 
 import { Breakdown, ScorePill, StatusPill, timeAgo } from './ui'
+import { platformLabel } from '@/lib/companies/names'
 
 const EDU: Record<string, string> = { phd: 'PhD', masters: "Master's degree", bachelors: "Bachelor's degree", diploma: 'Diploma' }
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1)
@@ -124,7 +125,7 @@ export default function JobDetailView({ id, onChanged }: { id: number; onChanged
             <span className="strong">{job.company_name}</span>
             {job.location && <span><PinIcon />{job.location}</span>}
             <span><ClockIcon />{timeAgo(job.posted_at || job.first_seen_at)}</span>
-            {job.ats_type && job.ats_type !== 'custom' && <span>via {job.ats_type}</span>}
+            {platformLabel(job.ats_type, job.company_name) && <span>via {platformLabel(job.ats_type, job.company_name)}</span>}
           </div>
         </div>
       </div>
@@ -152,7 +153,7 @@ export default function JobDetailView({ id, onChanged }: { id: number; onChanged
 
       {job.keywords && (job.keywords.required.length > 0 || job.keywords.preferred.length > 0) && (
         <div style={{ marginBottom: 12 }}>
-          <div className="small muted" style={{ marginBottom: 6 }}>Skills in this job (green = on your resume)</div>
+          <div className="small muted" style={{ marginBottom: 6 }}>Skills in this job — gold ones are on your resume</div>
           <div className="kw">
             {[...job.keywords.required, ...job.keywords.preferred].map((k) => (
               <span key={k} className={b?.skills_have.includes(k) ? 'have' : 'miss'}>

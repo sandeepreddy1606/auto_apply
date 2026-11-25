@@ -13,7 +13,7 @@ import { analyzeJd, detectSeniority, parseExperience, splitSections } from '../l
 import { applyUrlFor, detectAts, parseWorkday } from '../lib/jobs/ats.ts'
 import { relativePostedToIso } from '../lib/jobs/fetch.ts'
 import { decodeEntities, extractJsonLdJob, htmlToText, sanitizeHtml } from '../lib/jobs/html.ts'
-import { explain, freshnessScore, locationScore, scoreJob, titleScore } from '../lib/jobs/score.ts'
+import { degreeLevelOf, explain, freshnessScore, locationScore, scoreJob, titleDegree, titleScore } from '../lib/jobs/score.ts'
 import { canonicalSkills, extractSkills } from '../lib/jobs/skills.ts'
 import { experienceYearsFromFacts } from '../lib/jobs/context.ts'
 import { buildFacts, extractMetrics } from '../lib/resume/facts.ts'
@@ -161,6 +161,35 @@ describe('scoring', () => {
     assert.ok(score >= 80, `score ${score}`)
     assert.equal(breakdown.excluded, null)
     assert.deepEqual(breakdown.skills_missing, ['Kafka'])
+  })
+  test('a title that asks for a higher degree than yours is filtered, with the reason', () => {
+    const mine = { ...ctx, degree: degreeLevelOf('Bachelor of Technology, Computer Science and Engineering') }
+    assert.equal(mine.degree, 'bachelors')
+    const phd = scoreJob(job('Software Engineer, AI/ML, PhD, Early Career, 2026'), mine)
+    assert.equal(phd.score, 0)
+    assert.match(phd.breakdown.excluded ?? '', /PhD.*bachelor/)
+    // Same job for someone with a PhD, and a plain title for you: not filtered.
+    assert.equal(scoreJob(job('Software Engineer, AI/ML, PhD, Early Career, 2026'), { ...ctx, degree: 'phd' }).breakdown.excluded, null)
+    assert.equal(scoreJob(job('Backend Engineer I'), mine).breakdown.excluded, null)
+    // Unknown degree: never filtered on a guess.
+    assert.equal(scoreJob(job('Software Engineer, PhD'), ctx).breakdown.excluded, null)
+  })
+  test('a description whose minimum degree is above yours scores lower; "or equivalent" does not', () => {
+    const mine = { ...ctx, degree: 'bachelors' as const }
+    const base = scoreJob(job('Backend Engineer I'), mine).score
+    const masters = scoreJob(job('Backend Engineer I', { description_text: "Requirements\nA Master's in Computer Science is required. 0-2 years. Java, Spring Boot, Docker, SQL." }), mine).score
+    const equiv = scoreJob(job('Backend Engineer I', { description_text: "Requirements\nA Master's in Computer Science or equivalent experience. 0-2 years. Java, Spring Boot, Docker, SQL." }), mine).score
+    assert.ok(masters < base, `${masters} < ${base}`)
+    assert.ok(equiv > masters, `${equiv} > ${masters}`)
+  })
+  test('degree names', () => {
+    assert.equal(degreeLevelOf('B.Tech in CSE'), 'bachelors')
+    assert.equal(degreeLevelOf('M.Tech, Data Science'), 'masters')
+    assert.equal(degreeLevelOf('MBA'), 'masters')
+    assert.equal(degreeLevelOf('PhD, Machine Learning'), 'phd')
+    assert.equal(degreeLevelOf(''), null)
+    assert.equal(titleDegree('Research Scientist Intern, PhD'), 'phd')
+    assert.equal(titleDegree('Software Engineer, Early Career'), null)
   })
   test('excluded keyword forces 0 with a reason', () => {
     const { score, breakdown } = scoreJob(job('Senior Software Engineer'), ctx)

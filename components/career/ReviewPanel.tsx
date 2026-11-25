@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import { useToast } from '@/components/Toast'
 import { career } from '@/lib/career-api'
@@ -128,73 +129,32 @@ export default function ReviewPanel({ d, reload }: { d: ApplyDetail; reload: () 
 
   return (
     <div>
-      {s.error && <div className={s.status === 'failed' ? 'err-box' : 'warn-box'} style={{ marginBottom: 12 }}>{s.error}</div>}
+      <NextStep
+        d={d}
+        busy={busy}
+        nNeed={counts.need}
+        onFill={() => act('fill', () => career.fill(s.id))}
+        onFocus={() => act('focus', () => career.focus(s.id))}
+        onSelf={() =>
+          window.confirm('Mark this application as submitted? Only do this if you finished and sent it yourself in the browser window.') &&
+          act('self', () => career.selfSubmitted(s.id), 'Marked as applied.')
+        }
+        onConfirm={(yes) => act('confirm', () => career.confirm(s.id, yes), yes ? 'Marked as submitted.' : undefined)}
+        onCancel={() => window.confirm('Cancel this application?') && act('cancel', () => career.cancel(s.id))}
+      />
       {plan?.warnings.map((w, i) => <div key={i} className="warn-box" style={{ marginBottom: 8 }}>{w}</div>)}
 
-      {(['resume_ready', 'failed', 'blocked', 'needs_input', 'reviewing'].includes(s.status)) && (
-        <div className="row-actions" style={{ marginTop: 0, marginBottom: 12, alignItems: 'flex-start' }}>
-          <GatedButton gate={d.gates.fill} busy={busy === 'fill'} className={s.status === 'resume_ready' || s.status === 'blocked' ? 'btn primary' : 'btn'} onClick={() => act('fill', () => career.fill(s.id))}>
-            {s.status === 'resume_ready'
-              ? 'Autofill the application'
-              : s.status === 'blocked'
-                ? 'Continue filling'
-                : s.status === 'failed'
-                  ? 'Try again'
-                  : 'Re-fill from the start'}
-          </GatedButton>
-          <button className="btn sm" onClick={() => act('focus', () => career.focus(s.id))}>Show browser window</button>
-          {s.status !== 'resume_ready' && (
-            <button
-              className="btn sm"
-              title="You finished the form yourself in the browser window"
-              onClick={() =>
-                window.confirm('Mark this application as submitted? Only do this if you finished and sent it yourself in the browser window.') &&
-                act('self', () => career.selfSubmitted(s.id), 'Marked as applied.')
-              }
-            >
-              I submitted it myself
-            </button>
-          )}
-          {!(plan && editable) && (
-            <button className="btn sm danger" onClick={() => window.confirm('Cancel this application?') && act('cancel', () => career.cancel(s.id))}>
-              Cancel
-            </button>
-          )}
-        </div>
-      )}
-      {s.status === 'resume_ready' && !plan && (
-        <p className="muted small" style={{ marginTop: -4, marginBottom: 12 }}>
-          A browser window opens, fills the form from your profile and answers, attaches your resume and stops before submitting.
-          Anything it can’t answer is listed here for you. If the site asks you to sign in, do it in that window and press “Continue filling”.
-        </p>
-      )}
-
-      {working && (
-        <div className="ok-box" style={{ marginBottom: 12 }}>
-          <span className="spin" /> {s.status === 'filling' ? 'Filling the form in the automation browser — you can watch it.' : 'Submitting…'}
-        </div>
-      )}
-
-      {s.status === 'unconfirmed' && (
-        <div className="warn-box" style={{ marginBottom: 12 }}>
-          <b>Did the application go through?</b> Check the automation browser window.
-          <div className="row-actions">
-            <button className="btn success sm" onClick={() => act('confirm', () => career.confirm(s.id, true), 'Marked as submitted.')}>Yes, it was submitted</button>
-            <button className="btn sm" onClick={() => act('confirm', () => career.confirm(s.id, false))}>No, back to review</button>
-            <button className="btn sm" onClick={() => act('focus', () => career.focus(s.id))}>Show browser window</button>
-          </div>
-        </div>
-      )}
-
       {plan && (
-        <div className="review-grid">
+        <div className={`review-grid ${rows.length ? '' : 'only-shot'}`}>
+          {rows.length > 0 && (
           <div>
             <div className="counts">
-              <span className="pill ok">{counts.auto} from profile & resume</span>
-              <span className="pill info">{counts.bank} learned</span>
-              <span className="pill purple">{counts.draft} AI drafts</span>
-              <span className={`pill ${counts.need ? 'bad' : 'ok'}`}>{counts.need} need you</span>
-              {!plan.final_step_reached && <span className="pill warn">More steps ahead</span>}
+              <span className="muted small">{rows.length} field{rows.length > 1 ? 's' : ''}:</span>
+              {counts.auto > 0 && <span className="pill ok">{counts.auto} from profile & resume</span>}
+              {counts.bank > 0 && <span className="pill info">{counts.bank} learned</span>}
+              {counts.draft > 0 && <span className="pill purple">{counts.draft} AI drafts</span>}
+              {counts.need > 0 && <span className="pill bad">{counts.need} need you</span>}
+              {!plan.final_step_reached && <span className="pill warn">More pages ahead</span>}
             </div>
             <div className="field-list">
               {rows.map(({ f, a }) => {
@@ -228,8 +188,10 @@ export default function ReviewPanel({ d, reload }: { d: ApplyDetail; reload: () 
               })}
             </div>
           </div>
+          )}
 
           <div>
+            {!rows.length && <div className="shot-cap">What the site shows now</div>}
             {shot ? (
               <>
                 <AuthedImage className="shot" src={`/api/artifacts/${shot}`} alt="Form screenshot" />
@@ -248,7 +210,7 @@ export default function ReviewPanel({ d, reload }: { d: ApplyDetail; reload: () 
         </div>
       )}
 
-      {plan && (editable || s.status === 'reviewing') && (
+      {plan && rows.length > 0 && (editable || s.status === 'reviewing') && (
         <div className="actionbar">
           {nEdits > 0 && (
             <>
@@ -273,5 +235,106 @@ export default function ReviewPanel({ d, reload }: { d: ApplyDetail; reload: () 
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * The one thing to do next, for the state the application is in: a title,
+ * why, one primary button, and quieter secondary actions.
+ */
+function NextStep({
+  d,
+  busy,
+  nNeed,
+  onFill,
+  onFocus,
+  onSelf,
+  onConfirm,
+  onCancel,
+}: {
+  d: ApplyDetail
+  busy: string | null
+  nNeed: number
+  onFill: () => void
+  onFocus: () => void
+  onSelf: () => void
+  onConfirm: (yes: boolean) => void
+  onCancel: () => void
+}) {
+  const s = d.session
+  const plan = s.fill_plan
+  const fillBtn = (label: string, primary = true) => (
+    <GatedButton gate={d.gates.fill} busy={busy === 'fill'} className={primary ? 'btn primary' : 'btn'} onClick={onFill}>
+      {label}
+    </GatedButton>
+  )
+  const show = <button className="btn" onClick={onFocus}>Show browser window</button>
+  const self = <button className="btn ghost" title="You finished the form yourself in the browser window" onClick={onSelf}>I submitted it myself</button>
+  const cancel = <button className="btn ghost danger-text" onClick={onCancel}>Cancel application</button>
+
+  let tone = 'info'
+  let title = ''
+  let why: string | null = s.error
+  let actions: ReactNode = null
+  switch (s.status) {
+    case 'resume_ready':
+      title = 'Fill the application'
+      why = 'A browser window opens, fills the form from your profile and answers, attaches your resume and stops before submitting. If the site asks you to sign in, do it there and press Continue filling.'
+      actions = <>{fillBtn('Autofill the application')}{cancel}</>
+      break
+    case 'filling':
+    case 'submitting':
+      tone = 'working'
+      title = s.status === 'filling' ? 'Filling the form…' : 'Submitting…'
+      why = s.status === 'filling' ? 'Watch it in the automation browser window. Questions it can’t answer will be listed here.' : null
+      actions = show
+      break
+    case 'blocked':
+      tone = 'warn'
+      title = 'Sign in on the site, then continue'
+      why = s.error || 'The site needs you to sign in or create an account.'
+      actions = <>{show}{fillBtn('Continue filling')}{self}</>
+      break
+    case 'needs_input':
+      tone = 'warn'
+      title = nNeed ? `Answer ${nNeed} open question${nNeed > 1 ? 's' : ''}` : 'Answer the open questions'
+      why = s.error || 'They’re highlighted below. Your answers go into the form, and can be remembered for next time.'
+      actions = <>{show}{self}</>
+      break
+    case 'reviewing':
+      tone = 'ok'
+      title = 'Check the answers and submit'
+      why = plan?.final_step_reached === false ? 'The form has more pages; submitting moves on through them.' : 'Everything required is filled. Submit sends it to the company.'
+      actions = <>{show}{self}</>
+      break
+    case 'unconfirmed':
+      tone = 'warn'
+      title = 'Did the application go through?'
+      why = s.error || 'It was submitted, but no confirmation page appeared. Check the browser window.'
+      actions = (
+        <>
+          <button className="btn primary" onClick={() => onConfirm(true)}>Yes, it was submitted</button>
+          <button className="btn" onClick={() => onConfirm(false)}>No, back to review</button>
+          {show}
+        </>
+      )
+      break
+    case 'failed':
+      tone = 'bad'
+      title = 'It stopped'
+      why = s.error || 'Something went wrong while filling the form.'
+      actions = <>{fillBtn('Try again')}{show}{self}{cancel}</>
+      break
+    default:
+      return null
+  }
+  return (
+    <section className={`next-step ${tone}`} aria-live="polite">
+      <div className="ns-text">
+        <h2 className="ns-title">{tone === 'working' && <span className="spin" />} {title}</h2>
+        {why && <p className="ns-why">{why}</p>}
+      </div>
+      {actions && <div className="ns-actions">{actions}</div>}
+    </section>
   )
 }

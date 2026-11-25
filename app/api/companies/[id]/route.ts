@@ -1,3 +1,4 @@
+import { tidyCompanyName } from '@/lib/companies/names'
 import { normalizeCareerUrl } from '@/lib/companies/url'
 import { queueScan } from '@/lib/companies/schedule'
 import * as db from '@/lib/server/db'
@@ -23,7 +24,7 @@ export const PATCH = handler(async (req: Request, ctx: { params: Promise<{ id: s
   if (body.name !== undefined) {
     const name = String(body.name).trim()
     if (!name) throw new HttpError(400, 'Company name can’t be empty.')
-    fields.name = name.slice(0, 120)
+    fields.name = tidyCompanyName(name).slice(0, 120)
   }
   const urlChanged = body.career_url !== undefined && normalizeCareerUrl(String(body.career_url)) !== before.career_url
   if (urlChanged) {

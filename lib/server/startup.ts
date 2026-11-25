@@ -16,6 +16,9 @@ export async function start(): Promise<void> {
   // education, current role) into empty profile fields so autofill works.
   void prefillProfileOnce().catch((e) => console.warn('[autoapply.startup] profile prefill skipped:', e))
 
+  // Once: company names typed in lowercase ("google") are shown capitalised.
+  void tidyCompanyNamesOnce().catch((e) => console.warn('[autoapply.startup] company names skipped:', e))
+
   // Page audits and other throwaway servers: no scans or worker.
   if (process.env.AUTO_APPLY_NO_BACKGROUND === '1') return
 
@@ -40,8 +43,24 @@ export async function start(): Promise<void> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-/** Bump when lib/jobs/analyze.ts reads descriptions differently, so stored scores refresh. */
-const JD_ANALYZER_VERSION = 'jd_analyzer_v3'
+/** Bump when lib/jobs/analyze.ts or score.ts change how jobs are read or scored, so stored scores refresh. */
+const JD_ANALYZER_VERSION = 'jd_analyzer_v4'
+
+async function tidyCompanyNamesOnce(): Promise<void> {
+  const { kvGet, kvSet } = await import('@/lib/tasks/queue')
+  if ((await kvGet('company_names_tidied_v1'))?.value) return
+  const db = await import('@/lib/server/db')
+  const { tidyCompanyName } = await import('@/lib/companies/names')
+  let n = 0
+  for (const c of await db.listCompanies()) {
+    const tidy = tidyCompanyName(c.name)
+    if (tidy && tidy !== c.name) {
+      await db.updateCompany(c.id, { name: tidy })
+      n++
+    }
+  }
+  await kvSet('company_names_tidied_v1', { at: new Date().toISOString(), renamed: n })
+}
 
 async function prefillProfileOnce(): Promise<void> {
   const { kvGet, kvSet } = await import('@/lib/tasks/queue')

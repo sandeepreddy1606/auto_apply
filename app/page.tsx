@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 
-import { ScorePill } from '@/components/career/ui'
+import { NEXT_STEP, ScorePill } from '@/components/career/ui'
 import {
   AlertIcon, ArrowRightIcon, BoltIcon, BriefcaseIcon, BuildingIcon, CheckIcon, ChevronRight, ClockIcon, PinIcon,
 } from '@/components/Icons'
@@ -25,6 +25,7 @@ import { api } from '@/lib/api'
 import { career } from '@/lib/career-api'
 import type { TrackerRow } from '@/lib/career-api'
 import type { CompanyJobsSummary, JobListItem, Settings } from '@/lib/types'
+import Monogram from '@/components/career/Monogram'
 
 const DAY = 86_400_000
 
@@ -41,13 +42,14 @@ function greeting(): string {
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
 }
 
-const ATTN: Record<string, [string, 'bad' | 'warn' | 'info']> = {
-  needs_input: ['Answer the open questions', 'warn'],
-  blocked: ['Sign in on the site, then continue', 'warn'],
-  unconfirmed: ['Did it go through? Tell us', 'bad'],
-  reviewing: ['Ready — review and submit', 'info'],
-  failed: ['Stopped — try again', 'bad'],
-  resume_ready: ['Resume chosen — start autofill', 'info'],
+/** Applications that wait on you, with the next step (same wording as Applications). */
+const TONE: Record<string, 'bad' | 'warn' | 'info'> = {
+  needs_input: 'warn',
+  blocked: 'warn',
+  unconfirmed: 'bad',
+  reviewing: 'info',
+  failed: 'bad',
+  resume_ready: 'info',
 }
 
 export default function HomePage() {
@@ -105,7 +107,7 @@ export default function HomePage() {
   const s = sessions ?? []
   const submitted = s.filter((x) => x.status === 'submitted')
   const inProgress = s.filter((x) => !['submitted', 'cancelled'].includes(x.status))
-  const attention = s.filter((x) => x.status in ATTN).slice(0, 6)
+  const attention = s.filter((x) => x.status in TONE).slice(0, 6)
   const appliedTotal = submitted.length
   const appliedWeek = submitted.filter((x) => x.submitted_at && Date.now() - Date.parse(x.submitted_at) < 7 * DAY).length
   const responded = submitted.filter((x) => x.stage && ['screening', 'interview', 'offer'].includes(x.stage)).length
@@ -191,7 +193,7 @@ export default function HomePage() {
                     <span><ClockIcon />{ago(j.posted_at || j.first_seen_at)} ago</span>
                   </span>
                   {j.match_breakdown && j.match_breakdown.skills_have.length > 0 && (
-                    <span className="pick-why">You have {j.match_breakdown.skills_have.slice(0, 4).join(', ')}</span>
+                    <span className="pick-why">You have {j.match_breakdown.skills_have.slice(0, 4).map((k, i) => <span key={k}>{i ? ' ' : ''}<span className="mark soft">{k}</span></span>)}</span>
                   )}
                 </button>
                 <div className="pick-actions">
@@ -210,15 +212,15 @@ export default function HomePage() {
 
         <dl className="figures">
           <button onClick={() => navigate('/jobs')}><dt>New matches</dt><dd>{summary ? summary.new_matched : '–'}</dd></button>
-          <button onClick={() => navigate('/tracker')}><dt>In progress</dt><dd>{sessions ? inProgress.length : '–'}</dd>{attention.length > 0 && <em>{attention.length} need you</em>}</button>
-          <button onClick={() => navigate('/tracker')}><dt>Applied</dt><dd>{sessions ? appliedTotal : '–'}</dd>{appliedWeek > 0 && <em className="good">{appliedWeek} this week</em>}</button>
-          <button onClick={() => navigate('/tracker')}><dt>Interviews</dt><dd>{sessions ? interviews : '–'}</dd>{submitted.length > 0 && <em>{Math.round((responded / submitted.length) * 100)}% heard back</em>}</button>
+          <button onClick={() => navigate('/tracker')}><dt>In progress</dt><dd>{sessions ? inProgress.length : '–'}</dd>{attention.length > 0 && <em className="warn">{attention.length} need you</em>}</button>
+          <button onClick={() => navigate('/tracker')}><dt>Applied</dt><dd>{sessions ? appliedTotal : '–'}</dd>{appliedWeek > 0 ? <em className="good">{appliedWeek} this week</em> : sessions && appliedTotal === 0 && <em>Submit one to start</em>}</button>
+          <button onClick={() => navigate('/tracker')}><dt>Interviews</dt><dd>{sessions ? interviews : '–'}</dd>{submitted.length > 0 ? <em>{Math.round((responded / submitted.length) * 100)}% heard back</em> : sessions && <em>Tracked once you apply</em>}</button>
         </dl>
       </header>
 
       <div className="dash-grid">
         <div className="dash-col">
-          <section className="card">
+          <section className={`card needs-card ${attention.length ? "has-items" : ""}`}>
             <div className="card-head">
               <div>
                 <div className="card-title">Needs you</div>
@@ -235,10 +237,11 @@ export default function HomePage() {
             ) : (
               <div className="attn">
                 {attention.map((x) => {
-                  const [label, tone] = ATTN[x.status]
+                  const label = NEXT_STEP[x.status] ?? ''
+                  const tone = TONE[x.status]
                   return (
                     <button key={x.id} className="attn-row" onClick={() => navigate(`/apply/${x.id}`)}>
-                      <span className="logo-tile">{x.company_name.slice(0, 2)}</span>
+                      <Monogram name={x.company_name} />
                       <span className="at-body">
                         <div className="at-title">{x.job_title}</div>
                         <div className="at-sub"><span className={`at-reason ${tone}`}>{label}. </span>{x.company_name}, updated {ago(x.updated_at)} ago</div>
@@ -266,8 +269,11 @@ export default function HomePage() {
               <div className="empty-state" style={{ padding: '18px 0 8px' }}>
                 <span className="es-icon"><BriefcaseIcon /></span>
                 <b>No matches yet</b>
-                <p>Watch a company’s career page and set your target roles — matching jobs appear here.</p>
-                <button className="btn sm" onClick={() => navigate('/companies')}>Add a company</button>
+                <p>Two steps fill this: choose the roles you want, and watch a few companies. Matching jobs then appear here.</p>
+                <div className="row-actions" style={{ marginTop: 6, justifyContent: 'center' }}>
+                  <button className="btn primary sm" onClick={() => navigate('/jobs')}>Choose roles</button>
+                  <button className="btn sm" onClick={() => navigate('/companies')}>Add suggested companies</button>
+                </div>
               </div>
             ) : top.length <= 3 ? (
               <p className="muted small">The shortlist above is everything above your relevance threshold right now.</p>
@@ -320,6 +326,13 @@ export default function HomePage() {
                 <div className="card-sub">{total30} found in the last 30 days</div>
               </div>
             </div>
+            {total30 === 0 ? (
+              <p className="quiet-note">
+                Nothing new matched this month. Watching more companies widens the net —{' '}
+                <button className="link-btn" onClick={() => navigate('/companies')}>add suggested companies</button>.
+              </p>
+            ) : (
+            <>
             <div className="bars" role="img" aria-label={`New matching jobs per day over the last 30 days, ${total30} in total`}>
               {days.map((d) => (
                 <div key={d.key} className={`bar-col ${d.n ? '' : 'zero'}`}>
@@ -334,8 +347,11 @@ export default function HomePage() {
               <caption>New matching jobs per day</caption>
               <tbody>{days.filter((d) => d.n).map((d) => <tr key={d.key}><th>{d.label}</th><td>{d.n}</td></tr>)}</tbody>
             </table>
+            </>
+            )}
           </section>
 
+          {submitted.length > 0 && (
           <section className="card">
             <div className="card-head">
               <div>
@@ -353,6 +369,7 @@ export default function HomePage() {
               ))}
             </div>
           </section>
+          )}
         </div>
       </div>
     </div>

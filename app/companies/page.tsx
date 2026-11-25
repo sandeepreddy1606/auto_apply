@@ -14,6 +14,9 @@ import PageHeader from '@/components/PageHeader'
 import { useToast } from '@/components/Toast'
 import { api, request } from '@/lib/api'
 import type { CompaniesConfig, Company } from '@/lib/types'
+import { platformLabel } from '@/lib/companies/names'
+import SuggestedCompanies from '@/components/career/SuggestedCompanies'
+import Monogram from '@/components/career/Monogram'
 
 const INTERVALS: [number, string][] = [
   [60, 'every hour'],
@@ -89,7 +92,7 @@ function CompanyRow({ c, onChanged, everyMin }: { c: Company; onChanged: () => v
   return (
     <div className="crow">
       <div className="crow-main">
-        <span className="logo-tile">{c.name.slice(0, 2)}</span>
+        <Monogram name={c.name} />
         <div style={{ minWidth: 0, flex: 1 }}>
           {editing ? (
             <div className="grid-2" style={{ gap: 8 }}>
@@ -100,7 +103,7 @@ function CompanyRow({ c, onChanged, everyMin }: { c: Company; onChanged: () => v
             <>
               <div className="crow-title">
                 {c.name}
-                {c.ats_type && c.ats_type !== 'custom' && <span className="pill">{c.ats_type}</span>}
+                {platformLabel(c.ats_type, c.name) && <span className="pill">{platformLabel(c.ats_type, c.name)}</span>}
                 {c.priority === 'high' && <span className="pill info">High priority</span>}
                 {c.priority === 'low' && <span className="pill">Low priority</span>}
               </div>
@@ -122,7 +125,8 @@ function CompanyRow({ c, onChanged, everyMin }: { c: Company; onChanged: () => v
             <b>{c.matched_jobs ?? 0}</b> relevant
           </button>
           {(c.new_jobs ?? 0) > 0 && <span className="pill info">{c.new_jobs} new</span>}
-          {(c.applications ?? 0) > 0 && <span className="pill ok">{c.applications} applied</span>}
+          {(c.submitted ?? 0) > 0 && <span className="pill ok">{c.submitted} applied</span>}
+          {(c.applications ?? 0) - (c.submitted ?? 0) > 0 && <span className="pill">{(c.applications ?? 0) - (c.submitted ?? 0)} in progress</span>}
         </div>
       )}
 
@@ -269,6 +273,8 @@ export default function CompaniesPage() {
             and most company job pages. Found a single job instead? <button type="button" className="link-btn" onClick={() => navigate('/jobs')}>Add it by link in Jobs</button>.
           </p>
         </form>
+
+        {companies && <SuggestedCompanies companies={companies} onAdded={load} />}
 
         {loadErr && !companies && (
           <div className="err-box">Couldn’t load companies: {loadErr} <button className="link-btn" onClick={load}>Retry</button></div>

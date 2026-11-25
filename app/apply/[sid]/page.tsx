@@ -11,6 +11,7 @@ import { useToast } from '@/components/Toast'
 import { career, streamSession } from '@/lib/career-api'
 import type { ApplyDetail } from '@/lib/career-api'
 import type { AppStage, SessionStatus } from '@/lib/types'
+import { platformLabel } from '@/lib/companies/names'
 
 type Step = 'resume' | 'fill' | 'done'
 
@@ -57,6 +58,11 @@ export default function ApplyPage({ params }: { params: Promise<{ sid: string }>
   const [err, setErr] = useState<string | null>(null)
   const [step, setStep] = useState<Step | null>(null)
   const [showLog, setShowLog] = useState(false)
+  // Something went wrong: open the timeline so you can see what happened.
+  const troubled = d ? ['blocked', 'failed', 'unconfirmed'].includes(d.session.status) : false
+  useEffect(() => {
+    if (troubled) setShowLog(true)
+  }, [troubled])
   const navigate = useNavigate()
   const toast = useToast()
   const lastEvent = useRef(0)
@@ -146,7 +152,7 @@ export default function ApplyPage({ params }: { params: Promise<{ sid: string }>
         sub={
           <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             {job?.company_name}
-            {s.ats_type && s.ats_type !== 'custom' ? ` via ${s.ats_type}` : ''} <StatusPill status={s.status} />
+            {platformLabel(s.ats_type, job?.company_name ?? '') ? ` via ${platformLabel(s.ats_type, job?.company_name ?? '')}` : ''} <StatusPill status={s.status} />
           </span>
         }
         backTo="/jobs"

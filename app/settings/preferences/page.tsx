@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
+import { ROLE_SUGGESTIONS } from '@/components/career/RolesNudge'
 import { ChipInput } from '@/components/career/ui'
 import PageHeader from '@/components/PageHeader'
 import { LoadError, SaveBar, useGuardedBack, useSection } from '@/components/settings/shared'
@@ -16,7 +17,6 @@ const SENIORITY: [Seniority, string][] = [
   ['mid', 'Mid / 2–5 y'],
   ['senior', 'Senior'],
 ]
-const ROLE_SUGGESTIONS = ['Software Engineer', 'Backend Engineer', 'Full Stack Engineer', 'SDE', 'ML Engineer', 'AI Engineer', 'Frontend Engineer', 'Data Engineer']
 const CITY_SUGGESTIONS = ['Chennai', 'Bengaluru', 'Hyderabad', 'Pune', 'Mumbai', 'Gurugram', 'Noida', 'Remote']
 
 export default function PreferencesPage() {

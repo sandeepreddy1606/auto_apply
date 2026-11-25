@@ -2,6 +2,7 @@
 import { profileYears } from '@/lib/server/matching'
 import type { Settings } from '@/lib/types'
 
+import { degreeLevelOf } from './score'
 import type { ScoreContext } from './score'
 import { canonicalSkills, withImplied } from './skills'
 
@@ -29,6 +30,7 @@ export async function buildScoreContext(settings: Settings): Promise<ScoreContex
     skills: withImplied(canonicalSkills(skillSources)),
     years,
     fallbackRoles: role ? [role] : resumeRoles,
+    degree: degreeLevelOf(settings.profile.degree),
   }
 }
 

@@ -5,7 +5,10 @@
  *
  * Hard filters force 0 and say why: an excluded keyword/company, seniority
  * outside your levels, a title that matches none of your target roles (when
- * you've set roles), or a job asking for far more experience than you have.
+ * you've set roles), a job asking for far more experience than you have, or a
+ * title that asks for a higher degree than yours ("…, PhD, Early Career").
+ * A description whose minimum degree is above yours (with no "or equivalent")
+ * scores lower instead.
  * Pure: callers pass everything in.
  */
 import type { JobPrefs, ScoreBreakdown, Seniority } from '@/lib/types'
@@ -30,7 +33,32 @@ export interface ScoreContext {
   years: number | null
   /** Fallback roles when no target roles are set (profile current role). */
   fallbackRoles: string[]
+  /** Your highest degree, when known. */
+  degree?: DegreeLevel | null
   now?: Date
+}
+
+export type DegreeLevel = 'diploma' | 'bachelors' | 'masters' | 'phd'
+const DEGREE_RANK: Record<DegreeLevel, number> = { diploma: 0, bachelors: 1, masters: 2, phd: 3 }
+const DEGREE_NAME: Record<DegreeLevel, string> = { diploma: 'diploma', bachelors: "bachelor's", masters: "master's", phd: 'PhD' }
+
+/** Your degree from its written form: "Bachelor of Technology, Computer Science" → bachelors. */
+export function degreeLevelOf(text: string | null | undefined): DegreeLevel | null {
+  const t = (text || '').toLowerCase()
+  if (!t.trim()) return null
+  if (/\bph\.?\s?d\b|doctor(ate|al)?\b/.test(t)) return 'phd'
+  if (/\bmaster|\bm\.?\s?tech\b|\bm\.?\s?sc\b|\bmba\b|\bm\.?\s?s\b|\bm\.?\s?e\b|\bmca\b/.test(t)) return 'masters'
+  if (/\bbachelor|\bb\.?\s?tech\b|\bb\.?\s?e\b|\bb\.?\s?sc\b|\bb\.?\s?s\b|\bbca\b|\bbba\b|\bb\.?\s?com\b|\bundergrad/.test(t)) return 'bachelors'
+  if (/\bdiploma\b/.test(t)) return 'diploma'
+  return null
+}
+
+/** The degree a job TITLE asks for ("Research Scientist, PhD" → phd), or null. */
+export function titleDegree(title: string): DegreeLevel | null {
+  const t = title || ''
+  if (/\bph\.?\s?d\b|\bdoctora(l|te)\b/i.test(t)) return 'phd'
+  if (/\bmaster'?s\b|\bm\.?\s?tech\b|\bms (student|graduate)\b/i.test(t)) return 'masters'
+  return null
 }
 
 const ROLE_SYNONYMS: string[][] = [
@@ -177,6 +205,10 @@ export function scoreJob(job: ScoreInput, ctx: ScoreContext): { score: number; b
   if (!excluded && explicitRoles && prefs.require_title_match !== false && tScore < TITLE_GATE) {
     excluded = `title doesn't match your roles (${prefs.target_roles.slice(0, 3).join(', ')})`
   }
+  const needs = titleDegree(job.title)
+  if (!excluded && needs && ctx.degree && DEGREE_RANK[needs] > DEGREE_RANK[ctx.degree]) {
+    excluded = `asks for a ${DEGREE_NAME[needs]} (you have a ${DEGREE_NAME[ctx.degree]})`
+  }
   const gap = prefs.max_experience_gap ?? 2
   if (!excluded && range && ctx.years !== null && gap < 10 && range.min - ctx.years > gap) {
     excluded = `asks for ${range.min}+ years (you have about ${formatYears(ctx.years)})`
@@ -202,7 +234,10 @@ export function scoreJob(job: ScoreInput, ctx: ScoreContext): { score: number; b
   const fScore = freshnessScore(job.posted_at || job.first_seen_at, prefs.freshness_days, ctx.now)
   const cScore = job.company_priority === 'high' ? 1 : job.company_priority === 'low' ? 0 : 0.5
 
-  const raw = 35 * tScore + 30 * sScore + 15 * eScore + 10 * lScore + 5 * fScore + 5 * cScore
+  let raw = 35 * tScore + 30 * sScore + 15 * eScore + 10 * lScore + 5 * fScore + 5 * cScore
+  // The description's minimum degree is above yours, with no "or equivalent": a weaker fit.
+  const edu = jd.details.education
+  if (edu?.level && ctx.degree && !edu.equivalent && DEGREE_RANK[edu.level] > DEGREE_RANK[ctx.degree]) raw *= 0.8
   const score = excluded ? 0 : Math.round(Math.min(100, Math.max(0, raw)))
 
   return {

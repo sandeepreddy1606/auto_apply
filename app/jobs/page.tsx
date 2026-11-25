@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import JobDetailView from '@/components/career/JobDetailView'
 import JobFilters, { EMPTY_FILTERS, activeCount, filterParams, filtersFromQuery } from '@/components/career/JobFilters'
+import RolesNudge from '@/components/career/RolesNudge'
 import type { Filters } from '@/components/career/JobFilters'
 import { ScorePill, StatusPill, timeAgo } from '@/components/career/ui'
 import { useNavigate } from '@/components/Navigation'
@@ -188,6 +189,7 @@ export default function JobsPage() {
         actions={<button className="btn" onClick={() => setAdding(true)}><LinkIcon /> Add a job by link</button>}
       />
       {adding && <AddJobSheet onClose={() => setAdding(false)} onAdded={(id) => { setAdding(false); navigate(`/jobs/${id}`) }} />}
+      <RolesNudge onSaved={load} />
 
       <div className="seg multi" style={{ marginBottom: 12 }}>
         {VIEWS.map(([k, label]) => (
@@ -210,7 +212,7 @@ export default function JobsPage() {
 
       {err && <div className="err-box">{err}</div>}
 
-      <div className="jobs-layout">
+      <div className={`jobs-layout ${(data?.items.length ?? 0) > 0 ? '' : 'no-detail'}`}>
         <div>
           {!data && [0, 1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ marginBottom: 10 }} />)}
           {data && data.items.length === 0 && (
@@ -226,8 +228,9 @@ export default function JobsPage() {
                 </>
               ) : view === 'relevant' ? (
                 <>
-                  Nothing above your relevance threshold.{' '}
-                  <button className="link-btn" onClick={() => setView('all')}>See all jobs</button> or{' '}
+                  Nothing above your relevance threshold yet.{' '}
+                  <button className="link-btn" onClick={() => navigate('/companies')}>Watch more companies</button>,{' '}
+                  <button className="link-btn" onClick={() => setView('all')}>see all jobs</button> or{' '}
                   <button className="link-btn" onClick={() => navigate('/settings/preferences')}>tune preferences</button>.
                 </>
               ) : (
@@ -254,7 +257,7 @@ export default function JobsPage() {
                     <span><ClockIcon />{timeAgo(j.posted_at || j.first_seen_at)}</span>
                   </div>
                   {j.match_breakdown && !j.match_breakdown.excluded && j.match_breakdown.skills_have.length > 0 && (
-                    <div className="jc-why truncate">You have {j.match_breakdown.skills_have.slice(0, 5).join(', ')}</div>
+                    <div className="jc-why truncate">You have {j.match_breakdown.skills_have.slice(0, 5).map((k, i) => <span key={k}>{i ? ' ' : ''}<span className="mark soft">{k}</span></span>)}</div>
                   )}
                   {j.match_breakdown?.excluded && <div className="jc-why">Filtered: {j.match_breakdown.excluded}</div>}
                   {(j.session_status || j.state === 'shortlisted' || j.state === 'new' || j.active === 0 || !j.has_description) && (
@@ -279,7 +282,7 @@ export default function JobsPage() {
           )}
           {desktop && <p className="muted small" style={{ textAlign: 'center' }}>Tip: j / k to move between jobs</p>}
         </div>
-        {desktop && (
+        {desktop && (data?.items.length ?? 0) > 0 && (
           <div className="detail-pane">
             {selected ? <JobDetailView id={selected} onChanged={load} /> : <div className="empty">Pick a job</div>}
           </div>
